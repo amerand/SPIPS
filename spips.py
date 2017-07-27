@@ -1943,7 +1943,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     # ax_e.xaxis.set_ticklabels([])
     # ax_e.hlines(0, -0.2, 1.2)
     # ax_e.hlines([-3,3], -0.2, 1.2, linestyle='dashed')
-    if plot and True:
+    if plot and False:
         # -- persistent L/R and L/Vpuls diagrams
         plt.figure(0, figsize=(8,8))
         plt.clf()
