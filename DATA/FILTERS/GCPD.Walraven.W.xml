@@ -1,0 +1,189 @@
+<?xml version="1.0"?>
+<VOTABLE version="1.1" xsi:schemaLocation="http://www.ivoa.net/xml/VOTable/v1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <INFO name="QUERY_STATUS" value="OK"/>
+  <RESOURCE type="results">
+    <PARAM name="FilterProfileService" value="ivo://svo/fps" ucd="meta.ref.ivorn" utype="PhotometryFilter.fpsIdentifier" datatype="char" arraysize="*"/>
+    <PARAM name="filterID" value="GCPD/Walraven.W" ucd="meta.id" utype="photdm:PhotometryFilter.identifier" datatype="char" arraysize="*"/>
+    <PARAM name="WavelengthUnit" value="Angstrom" ucd="meta.unit" utype="PhotometryFilter.SpectralAxis.unit" datatype="char" arraysize="*"/>
+    <PARAM name="WavelengthUCD" value="em.wl" ucd="meta.ucd" utype="PhotometryFilter.SpectralAxis.UCD" datatype="char" arraysize="*"/>
+    <PARAM name="Description" value="Walraven W filter in GCPD (ADPS)" ucd="meta.note" utype="photdm:PhotometryFilter.description" datatype="char" arraysize="*"/>
+    <PARAM name="Band" value="W" utype="photdm:PhotometryFilter.bandName" datatype="char" arraysize="*"/>
+    <PARAM name="ProfileReference" value="http://obswww.unige.ch/gcpd/system.html" datatype="char" arraysize="*"/>
+    <PARAM name="Description" value="Walraven W filter in GCPD (ADPS)" ucd="meta.note" utype="photdm:PhotometryFilter.description" datatype="char" arraysize="*"/>
+    <PARAM name="Comments" value="0.91 relector. Leiden Southern Station, Union Obs., South Africa
+Lallemand cell
+Walraven &amp; Walraven 1960: http://adsabs.harvard.edu/abs/1960BAN....15...67W
+" ucd="meta.note" datatype="char" arraysize="*"/>
+    <PARAM name="WavelengthMean" value="3254.6080593982" unit="Angstrom" ucd="em.wl" utype="photdm:PhotometryFilter.SpectralAxis.Coverage.Location.Value" datatype="float" >
+       <DESCRIPTION>Mean wavelength. Defined as integ[x*filter(x) dx]/integ[filter(x) dx]</DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthEff" value="3253.8734284736" unit="Angstrom" ucd="em.wl.effective" datatype="float" >
+       <DESCRIPTION>Effective wavelength. Defined as integ[x*filter(x)*vega(x) dx]/integ[filter(x)*vega(x) dx]</DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthMin" value="3113.988" unit="Angstrom" ucd="em.wl;stat.min" utype="photdm:PhotometryFilter.SpectralAxis.Coverage.Bounds.Start" datatype="float" >
+       <DESCRIPTION>Minimum filter wavelength. Defined as the first lambda value with a transmission at least 1% of maximum transmission</DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthMax" value="3397.8391304348" unit="Angstrom" ucd="em.wl;stat.max" utype="photdm:PhotometryFilter.SpectralAxis.Coverage.Bounds.Stop" datatype="float" >
+       <DESCRIPTION>Maximum filter wavelength. Defined as the last lambda value with a transmission at least 1% of maximum transmission</DESCRIPTION>
+    </PARAM>
+    <PARAM name="WidthEff" value="143.47031169899" unit="Angstrom" ucd="instr.bandwidth" utype="photdm:PhotometryFilter.SpectralAxis.Coverage.Bounds.Extent" datatype="float" >
+       <DESCRIPTION>Effective width. Defined as integ[x*filter(x) dx].\nEquivalent to the horizontal size of a rectangle with height equal to maximum transmission and with the same area that the one covered by the filter transmission curve.</DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthCen" value="3253.2777777778" unit="Angstrom" ucd="em.wl" datatype="float" >
+       <DESCRIPTION>Central wavelength. Defined as the central wavelength between the two points defining FWMH</DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthPivot" value="3254.1515751111" unit="Angstrom" ucd="em.wl" datatype="float" >
+       <DESCRIPTION>Peak wavelength. Defined as sqrt{integ[x*filter(x) dx]/integ[filter(x) dx/x]}</DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthPeak" value="3250" unit="Angstrom" ucd="em.wl" datatype="float" >
+       <DESCRIPTION>Peak wavelength. Defined as the lambda value with larger transmission</DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthPhot" value="3254.792426034" unit="Angstrom" ucd="em.wl" datatype="float" >
+       <DESCRIPTION>Photon distribution based effective wavelength. Defined as integ[x^2*filter(x)*vega(x) dx]/integ[x*filter(x)*vega(x) dx]</DESCRIPTION>
+    </PARAM>
+    <PARAM name="FWHM" value="141.33333333333" unit="Angstrom" ucd="instr.bandwidth" datatype="float" >
+       <DESCRIPTION>Full width at half maximum. Defined as the difference between the two wavelengths for which filter transmission is half maximum</DESCRIPTION>
+    </PARAM>
+    <PARAM name="PhotCalID" value="GCPD/Walraven.W/Vega" ucd="meta.id" utype="photdm:PhotCal.identifier" datatype="char" arraysize="*"/>
+    <PARAM name="MagSys" value="Vega" ucd="meta.code" utype="photdm:PhotCal.MagnitudeSystem.type" datatype="char" arraysize="*"/>
+    <PARAM name="ZeroPoint" value="1181.2091104088" unit="Jy" ucd="phot.flux.density" utype="photdm:PhotCal.ZeroPoint.Flux.value" datatype="float" />
+    <PARAM name="ZeroPointUnit" value="Jy" ucd="meta.unit" utype="photdm:PhotCal.ZeroPoint.Flux.unit" datatype="char" arraysize="*"/>
+    <PARAM name="ZeroPointType" value="Pogson" ucd="meta.code" utype="photdm:PhotCal.ZeroPoint.type" datatype="char" arraysize="*"/>
+    <TABLE utype="photdm:PhotometryFilter.transmissionCurve.spectrum">
+      <FIELD name="Wavelength" utype="spec:Data.SpectralAxis.Value" ucd="em.wl" unit="Angstrom" datatype="float"/>
+      <FIELD name="Transmission" utype="spec:Data.FluxAxis.Value" ucd="phys.transmission" unit="" datatype="float"/>
+      <DATA>
+        <TABLEDATA>
+          <TR>
+            <TD>3100</TD>
+            <TD>0.000</TD>
+          </TR>
+          <TR>
+            <TD>3110</TD>
+            <TD>0.000</TD>
+          </TR>
+          <TR>
+            <TD>3120</TD>
+            <TD>0.025</TD>
+          </TR>
+          <TR>
+            <TD>3130</TD>
+            <TD>0.061</TD>
+          </TR>
+          <TR>
+            <TD>3140</TD>
+            <TD>0.130</TD>
+          </TR>
+          <TR>
+            <TD>3150</TD>
+            <TD>0.215</TD>
+          </TR>
+          <TR>
+            <TD>3160</TD>
+            <TD>0.300</TD>
+          </TR>
+          <TR>
+            <TD>3170</TD>
+            <TD>0.388</TD>
+          </TR>
+          <TR>
+            <TD>3180</TD>
+            <TD>0.475</TD>
+          </TR>
+          <TR>
+            <TD>3190</TD>
+            <TD>0.565</TD>
+          </TR>
+          <TR>
+            <TD>3200</TD>
+            <TD>0.652</TD>
+          </TR>
+          <TR>
+            <TD>3210</TD>
+            <TD>0.736</TD>
+          </TR>
+          <TR>
+            <TD>3220</TD>
+            <TD>0.817</TD>
+          </TR>
+          <TR>
+            <TD>3230</TD>
+            <TD>0.893</TD>
+          </TR>
+          <TR>
+            <TD>3240</TD>
+            <TD>0.956</TD>
+          </TR>
+          <TR>
+            <TD>3250</TD>
+            <TD>0.997</TD>
+          </TR>
+          <TR>
+            <TD>3260</TD>
+            <TD>0.995</TD>
+          </TR>
+          <TR>
+            <TD>3270</TD>
+            <TD>0.953</TD>
+          </TR>
+          <TR>
+            <TD>3280</TD>
+            <TD>0.889</TD>
+          </TR>
+          <TR>
+            <TD>3290</TD>
+            <TD>0.814</TD>
+          </TR>
+          <TR>
+            <TD>3300</TD>
+            <TD>0.725</TD>
+          </TR>
+          <TR>
+            <TD>3310</TD>
+            <TD>0.628</TD>
+          </TR>
+          <TR>
+            <TD>3320</TD>
+            <TD>0.534</TD>
+          </TR>
+          <TR>
+            <TD>3330</TD>
+            <TD>0.444</TD>
+          </TR>
+          <TR>
+            <TD>3340</TD>
+            <TD>0.359</TD>
+          </TR>
+          <TR>
+            <TD>3350</TD>
+            <TD>0.285</TD>
+          </TR>
+          <TR>
+            <TD>3360</TD>
+            <TD>0.211</TD>
+          </TR>
+          <TR>
+            <TD>3370</TD>
+            <TD>0.144</TD>
+          </TR>
+          <TR>
+            <TD>3380</TD>
+            <TD>0.080</TD>
+          </TR>
+          <TR>
+            <TD>3390</TD>
+            <TD>0.028</TD>
+          </TR>
+          <TR>
+            <TD>3400</TD>
+            <TD>0.005</TD>
+          </TR>
+          <TR>
+            <TD>3410</TD>
+            <TD>0.000</TD>
+          </TR>
+        </TABLEDATA>
+      </DATA>
+    </TABLE>
+  </RESOURCE>
+</VOTABLE>

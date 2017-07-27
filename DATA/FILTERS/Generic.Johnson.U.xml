@@ -1,0 +1,133 @@
+<?xml version="1.0"?>
+<VOTABLE version="1.1" xsi:schemaLocation="http://www.ivoa.net/xml/VOTable/v1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <INFO name="QUERY_STATUS" value="OK"/>
+  <RESOURCE type="results">
+    <PARAM name="ID" ucd="meta.id;instr.filter" utype="phfdm:PhotometryFilter.uniqueIdentifier" unit="" value="Generic/Johnson.U" datatype="char" arraysize="*">
+       <DESCRIPTION>
+          
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthMean" ucd="em.wl" utype="phfdm:PhotometryFilter.meanWavelength" unit="Angstrom" value="3531.05022831" datatype="float" >
+       <DESCRIPTION>
+          Calculated by the service using filter profile.
+          Defined as integ[x*filter(x) dx]/integ[filter(x) dx]
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthEff" ucd="em.wl.effective" utype="phfdm:PhotometryFilter.effWavelength" unit="Angstrom" value="3570.64730961" datatype="float" >
+       <DESCRIPTION>
+          Manually specified. See reference
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthMin" ucd="em.wl;stat.min" utype="phfdm:PhotometryFilter.minWavelength" unit="Angstrom" value="3010" datatype="float" >
+       <DESCRIPTION>
+          Calculated by the service using filter profile.
+          Defined as the first lambda value with a transmission at least 1% of maximum transmission
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthMax" ucd="em.wl;stat.max" utype="phfdm:PhotometryFilter.maxWavelength" unit="Angstrom" value="4100" datatype="float" >
+       <DESCRIPTION>
+          Calculated by the service using filter profile.
+          Defined as the last lambda value with a transmission at least 1% of maximum transmission
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthCen" ucd="em.wl;" utype="phfdm:PhotometryFilter.centralWavelength" unit="Angstrom" value="3520.29676736" datatype="float" >
+       <DESCRIPTION>
+          Calculated by the service using filter profile.
+          Defined the central wavelength between the two points defining FWMH
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="WavelengthPeak" ucd="em.wl;" utype="phfdm:PhotometryFilter.peakWavelength" unit="Angstrom" value="3600" datatype="float" >
+       <DESCRIPTION>
+          Calculated by the service using filter profile.
+          Defined as the lambda value with larger transmission
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="PhotSystem" ucd="" utype="phfdm:PhotometryFilter.photometricSystem" unit="" value="Johnson" datatype="char" arraysize="*">
+       <DESCRIPTION>
+          Photometric system
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="WidthEff" ucd="instr.bandwidth" utype="phfdm:PhotometryFilter.effectiveWidth" unit="Angstrom" value="657" datatype="float" >
+       <DESCRIPTION>
+          Manually specified. See reference
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="FWMH" ucd="instr.bandwidth" utype="phfdm:PhotometryFilter.FWMH" unit="Angstrom" value="683.730789613" datatype="float" >
+       <DESCRIPTION>
+          Calculated by the service using filter profile.
+          Defined as the difference between the two wavelengths for which filter transmission is half maximum.
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="ZeroPoint" ucd="phot.mag;arith.zp" utype="phfdm:PhotometryFilter.zeroPoint" unit="Jy" value="1564.20155943" datatype="float" >
+       <DESCRIPTION>
+          Calculated by the service using filter profile and vega spectrum.
+          Defined as integ[filter(x)*vega(x) dx]/integ[filter(x) dx]
+       </DESCRIPTION>
+    </PARAM>
+    <PARAM name="Description" ucd="meta.note" utype="phfdm:PhotometryFilter.filterDescription" unit="" value="Johnson U" datatype="char" arraysize="*">
+       <DESCRIPTION>
+          
+       </DESCRIPTION>
+    </PARAM>
+    <TABLE>
+      <FIELD name="Wavelength" ucd="em.wl" unit="Angstrom" datatype="float"/>
+      <FIELD name="Transmission" ucd="phys.transmission" unit="" datatype="float"/>
+      <DATA>
+        <TABLEDATA>
+          <TR>
+            <TD>3000.0</TD>
+            <TD>0.0000000000</TD>
+          </TR>
+          <TR>
+            <TD>3100.0</TD>
+            <TD>0.1000000000</TD>
+          </TR>
+          <TR>
+            <TD>3200.0</TD>
+            <TD>0.6100000000</TD>
+          </TR>
+          <TR>
+            <TD>3300.0</TD>
+            <TD>0.8400000000</TD>
+          </TR>
+          <TR>
+            <TD>3400.0</TD>
+            <TD>0.9300000000</TD>
+          </TR>
+          <TR>
+            <TD>3500.0</TD>
+            <TD>0.9700000000</TD>
+          </TR>
+          <TR>
+            <TD>3600.0</TD>
+            <TD>1.0000000000</TD>
+          </TR>
+          <TR>
+            <TD>3700.0</TD>
+            <TD>0.9700000000</TD>
+          </TR>
+          <TR>
+            <TD>3800.0</TD>
+            <TD>0.7300000000</TD>
+          </TR>
+          <TR>
+            <TD>3900.0</TD>
+            <TD>0.3600000000</TD>
+          </TR>
+          <TR>
+            <TD>4000.0</TD>
+            <TD>0.0500000000</TD>
+          </TR>
+          <TR>
+            <TD>4100.0</TD>
+            <TD>0.0100000000</TD>
+          </TR>
+          <TR>
+            <TD>4200.0</TD>
+            <TD>0.0000000000</TD>
+          </TR>
+        </TABLEDATA>
+      </DATA>
+    </TABLE>
+  </RESOURCE>
+</VOTABLE>
