@@ -98,5 +98,4 @@ def show(p=None):
     global obs
     if p is None:
         p = p_splines
-
-    Y = spips.model(obs, first_guess, title='delta Cep', verbose=True)
+    Y = spips.model(obs, p, title='delta Cep', verbose=True, plot=True)
