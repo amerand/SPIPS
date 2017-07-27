@@ -1,7 +1,5 @@
 Spectro Photo Interferometry of Pulsating stars
 
-see `delta_cep.py` as an example.
-
 # What is this?
 
 This is a python2.7 implementation of a parallax of pulsation method for Cepheids stars, described in [Mérand et al. (Astronomy & Astrophysics 584-80, 2015)](http://adsabs.harvard.edu/abs/2015A%26A...584A..80M). This is not meant as a well written code: this is a research code published for anyone willing to use it (providing you quote the aforementioned paper and you respect the license) to study Cepheids or reproduce results from these papers:
