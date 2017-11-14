@@ -2042,7 +2042,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         #plt.xlabel('Vpuls (km/s)')
         #plt.ylabel('$\delta$ luminosity (Lsol/day)')
         #plt.grid()
-    plt.figure(fignum)
+        plt.figure(fignum)
 
     # ----- diameters ------
     if plot:
@@ -3051,7 +3051,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     # === save FITS and plots =============================================
     if exportFits:
         if not starName is None:
-            filename = starName.replace(' ', '_')
+            filename = starName.lower().replace(' ', '_')
         else:
             filename = 'SPIPS_model'
 
@@ -3138,8 +3138,9 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         if not os.path.isdir(_dir_export):
             os.path.mkdir(_dir_export)
         thdulist.writeto(os.path.join(_dir_export, filename+'.fits'))
-        for k, f in enumerate(figures):
-            f.savefig(os.path.join(_dir_export, filename+'_Fig'+str(k)+'.pdf'))
+        if len(figures)>0:
+            for k, f in enumerate(figures):
+                f.savefig(os.path.join(_dir_export, filename+'_Fig'+str(k)+'.pdf'))
 
 
     return res

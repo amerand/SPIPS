@@ -8,6 +8,14 @@ This is a python2.7 implementation of a parallax of pulsation method for Cepheid
  - [Breitfelder et al. (2016)](http://adsabs.harvard.edu/abs/2016A%26A...587A.117B): "Observational calibration of the projection factor of Cepheids. II. Application to nine Cepheids with HST/FGS parallax measurements"
  - [Kervella et al. (2017)](http://adsabs.harvard.edu/abs/2017A%26A...600A.127K): "Observational calibration of the projection factor of Cepheids. III. The long-period Galactic Cepheid RS Puppis"
 
+## Recent changes
+
+Be aware that some changes have occurred recently (Nov 2017). If you have previous scripts, they will likely *not* run anymore:
+ - the names of the filters have change: they now do mirror the names of the XML files
+ - the "title=" keyword is gone from the "model" function, you should now use "starName="
+
+On the other hand, the export to FITS has been fixed! you can now add "exportFits=True" to the "model" and a FITS file would be exported containing the data, the parameters of the model and the model itself.
+
 ## Quick Start / Example
 
 Quick Start:
@@ -21,16 +29,18 @@ Quick Start:
 
 The result of the model is shown below:
 ![Fig1](delta_cep.png)
-- the upper left panel shows the phased radial velocity data (points) and model (line)
-- the middle left panel shows the phased effective temperature data (points) and model (line)
-- the lower left panel shows the phased interferometric angular diameter data (points) and model (lines). Note that the different colors show the impact of the effects of the interferometric baseline on the diameter measurements, due to the presence of an circum-stellar envelop
-- the panels on the right hand side show the photometric data. 
+- the upper left panel (a) shows the phased radial velocity data (points) and model (line)
+- the middle left panel (b) shows the phased effective temperature data (points) and model (line)
+- the lower left panel (c) shows the phased interferometric angular diameter data (points) and model (lines). Note that the different colors show the impact of the effects of the interferometric baseline on the diameter measurements, due to the presence of an circum-stellar envelop
+- the panels on the right hand side (d to v) show the photometric data.
+
+`delta_cep.fitsDemo(mode='export')` will export the model and the data to a FITS file (`delta_cep.fits`), which can be read using `delta_cep.fitsDemo(mode='import')`. Note that `delta_cep.fitsDemo(mode='import')` recomputes the model, rather than plotting the one in the FITS files. One can easily write their own routines to read and display the FITS file created by SPIPS, as they are self-explanatory. 
 
 ## Dependencies and known issues
 
 - `numpy`
 - `scipy` (version<0.19): The code is accelerated using [`scipy.weave`](https://docs.scipy.org/doc/scipy-0.18.1/reference/tutorial/weave.html) which has been deprecated in `scipy` version 0.19. Hence SPIPS currently only runs in a downgraded version of `scipy` of 0.18.
-- `astropy.io.fits`
+- `astropy.io.fits` for exporting / importing models in FITS format
 
 ## License (BSD)
 
