@@ -11,17 +11,17 @@ import itertools
 import sys
 
 """
-ldsatlas._udld('../SPIPS/DATA/LD_NEILSON/GIANTS/spheric/ld_satlas_surface.2t5500g100m75.dat', plot=1)
+ldsatlas._udld('../SPIPS/DATA/LD_NEILSON/GIANTS/spheric/ld_satlas_surface.2t5700g100m100.dat', plot=1)
 ldsatlas._udld_B74(0.5)
 """
 
 _data_dir = '../SPIPS/DATA/'
+
 for d in sys.path:
     if os.path.isdir(d) and 'SPIPS' in d:
         _data_dir = os.path.join(d, 'DATA')
         print '\033[43m', _data_dir, '\033[0m'
 
-_files_dir = 'LD_NEILSON/DWARFS/'
 
 col5 = ['Teff', 'logg', 'mass']
 for b in ['B','V','R','I','H','K','CoR','Kep']:
@@ -31,68 +31,70 @@ nei5 = {c:[] for c in col5}
 col16 = ['Teff', 'logg', 'mass', 'B','V','R','I','H','K','CoR','Kep']
 nei16 = {c:[] for c in col16}
 
-if False:
+TeffMin, TeffMax = 4000, 20000
+ftpServer = 'cdsarc.u-strasbg.fr'
+
+def downloadAllModels():
+    global _data_dir
+
+    _files_dir = 'LD_NEILSON/DWARFS/'
     # ================ DWARFS ==================================
     # -- download data is not present:
-    if not os.path.exists(os.path.join(_data_dir, _files_dir)):
-        from ftplib import FTP
-        try:
-            print ' > making', os.path.join(_data_dir, _files_dir)
-            os.makedirs(os.path.join(_data_dir, _files_dir))
-        except:
-            pass
-        print ' > connecting to Vizier FTP...'
-        ftp = FTP('cdsarc.u-strasbg.fr')     # connect to host, default port
-        ftp.login()                     # user anonymous, passwd anonymous@
-        for d in ['J', 'A+A', '556', 'A86']:
-            ftp.cwd(d)
-        for f in ['ReadMe', 'table5.dat', 'table16.dat']:
-            if not os.path.exists(os.path.join(_data_dir, _files_dir, f)):
-                print 'downloading', os.path.join(_data_dir, _files_dir, f)
+    #if not os.path.exists(os.path.join(_data_dir, _files_dir)):
+    from ftplib import FTP
+    try:
+        print ' > making', os.path.join(_data_dir, _files_dir)
+        os.makedirs(os.path.join(_data_dir, _files_dir))
+    except:
+        pass
+    print ' > connecting to Vizier FTP...'
+    ftp = FTP(ftpServer)     # connect to host, default port
+    ftp.login()                     # user anonymous, passwd anonymous@
+    directories = ['J', 'A+A', '556', 'A86']
+    for d in directories:
+        ftp.cwd(d)
+    print 'http://cdsarc.u-strasbg.fr/viz-bin/qcat?'.join(directories)
+    for f in ['ReadMe', 'table5.dat', 'table16.dat']:
+        if not os.path.exists(os.path.join(_data_dir, _files_dir, f)):
+            print 'downloading', os.path.join(_data_dir, _files_dir, f)
+            ftp.retrbinary('RETR '+f,
+                           open(os.path.join(_data_dir, _files_dir, f), 'wb').write)
+    print ' > loading spherical models...'
+    if not os.path.exists(os.path.join(_data_dir, _files_dir, 'spheric')):
+        os.makedirs(os.path.join(_data_dir, _files_dir, 'spheric'))
+    parent = ftp.pwd()
+    ftp.cwd('{}/{}'.format(parent, 'spheric'))
+    files = ftp.nlst()
+    for k,f in enumerate(files):
+        Teff = int(f.split('surface.2t')[1].split('g')[0])
+        logg = int(f.split('surface.2t')[1].split('g')[1].split('m')[0])
+        mass = int(f.split('surface.2t')[1].split('g')[1].split('m')[1].split('.')[0])
+        if Teff>=TeffMin and Teff<=TeffMax and Teff%300==0:
+        #if True:
+            if not os.path.exists(os.path.join(_data_dir, _files_dir, 'spheric', f)):
+                print 'downloading %3d/%3d'%(k+1, len(files)),
+                print f
                 ftp.retrbinary('RETR '+f,
-                               open(os.path.join(_data_dir, _files_dir, f), 'wb').write)
-        print ' > loading spherical models...'
-        if not os.path.exists(os.path.join(_data_dir, _files_dir, 'spheric')):
-            os.makedirs(os.path.join(_data_dir, _files_dir, 'spheric'))
-        parent = ftp.pwd()
-        ftp.cwd('{}/{}'.format(parent, 'spheric'))
-        files = ftp.nlst()
-        for k,f in enumerate(files):
-            Teff = int(f.split('surface.2t')[1].split('g')[0])
-            logg = int(f.split('surface.2t')[1].split('g')[1].split('m')[0])
-            mass = int(f.split('surface.2t')[1].split('g')[1].split('m')[1].split('.')[0])
-            #if Teff>=4500 and Teff<=8000 and Teff%300==0 and logg>=75 and logg<=200 and mass >=50 and mass%10==0:
-            if True:
-                if not os.path.exists(os.path.join(_data_dir, _files_dir, 'spheric', f)):
-                    print 'downloading %3d/%3d'%(k+1, len(files)),
-                    print f
-                    ftp.retrbinary('RETR '+f,
-                               open(os.path.join(_data_dir, _files_dir, 'spheric', f), 'wb').write)
-        print ' > loading planar models...'
-        if not os.path.exists(os.path.join(_data_dir, _files_dir, 'planar')):
-            os.makedirs(os.path.join(_data_dir, _files_dir, 'planar'))
-        ftp.cwd('{}/{}'.format(parent, 'planar'))
-        files = ftp.nlst()
-        for k,f in enumerate(files):
-            Teff = int(f.split('ld_t')[1].split('g')[0])
-            logg = int(f.split('ld_t')[1].split('g')[1].split('_')[0])
-            if Teff>=4500 and Teff<=8000 and Teff%300==0 and logg>=75 and logg<=200:
-                if not os.path.exists(os.path.join(_data_dir, _files_dir, 'planar', f)):
-                    print 'downloading %3d/%3d'%(k+1, len(files)),
-                    print f
-                    ftp.retrbinary('RETR '+f,
-                               open(os.path.join(_data_dir, _files_dir, 'planar', f), 'wb').write)
-        ftp.close()
+                           open(os.path.join(_data_dir, _files_dir, 'spheric', f), 'wb').write)
+    print ' > loading planar models...'
+    if not os.path.exists(os.path.join(_data_dir, _files_dir, 'planar')):
+        os.makedirs(os.path.join(_data_dir, _files_dir, 'planar'))
+    ftp.cwd('{}/{}'.format(parent, 'planar'))
+    files = ftp.nlst()
+    for k,f in enumerate(files):
+        Teff = int(f.split('ld_t')[1].split('g')[0])
+        logg = int(f.split('ld_t')[1].split('g')[1].split('_')[0])
+        if Teff>=TeffMin and Teff<=TeffMax and Teff%300==0 and logg>=75 and logg<=500:
+            if not os.path.exists(os.path.join(_data_dir, _files_dir, 'planar', f)):
+                print 'downloading %3d/%3d'%(k+1, len(files)),
+                print f
+                ftp.retrbinary('RETR '+f,
+                           open(os.path.join(_data_dir, _files_dir, 'planar', f), 'wb').write)
+    ftp.close()
 
-    # -- read table5.dat
-    # -- read the 4 parameters for each band
-    for l in open(os.path.join(_data_dir, _files_dir, 'table5.dat')).readlines():
-        for k,w in enumerate(l.split()):
-            nei5[col5[k]].append(float(w))
-
-# ================ GIANTS ==================================
-_files_dir = 'LD_NEILSON/GIANTS/'
-if not os.path.exists(os.path.join(_data_dir, _files_dir)):
+    # ================ GIANTS ==================================
+    _files_dir = 'LD_NEILSON/GIANTS/'
+    #if not os.path.exists(os.path.join(_data_dir, _files_dir)):
     from ftplib import FTP
     try:
         print ' > making', os.path.join(_data_dir, _files_dir)
@@ -119,7 +121,7 @@ if not os.path.exists(os.path.join(_data_dir, _files_dir)):
         Teff = int(f.split('surface.2t')[1].split('g')[0])
         logg = int(f.split('surface.2t')[1].split('g')[1].split('m')[0])
         mass = int(f.split('surface.2t')[1].split('g')[1].split('m')[1].split('.')[0])
-        if Teff>=4500 and Teff<=8000 and Teff%300==0 and logg>=75 and logg<=200 and mass >=50 and mass%10==0:
+        if Teff>=TeffMin and Teff<=TeffMax and Teff%300==0 and logg>=75 and logg<=500 and mass >=50 and mass%10==0:
         #if True:
             if not os.path.exists(os.path.join(_data_dir, _files_dir, 'spheric', f)):
                 print 'downloading %3d/%3d'%(k+1, len(files)),
@@ -134,7 +136,7 @@ if not os.path.exists(os.path.join(_data_dir, _files_dir)):
     for k,f in enumerate(files):
         Teff = int(f.split('ld_t')[1].split('g')[0])
         logg = int(f.split('ld_t')[1].split('g')[1].split('_')[0])
-        if Teff>=4500 and Teff<=8000 and Teff%300==0 and logg>=75 and logg<=200:
+        if Teff>=TeffMin and Teff<=TeffMax and Teff%300==0 and logg>=75 and logg<=500:
             if not os.path.exists(os.path.join(_data_dir, _files_dir, 'planar', f)):
                 print 'downloading %3d/%3d'%(k+1, len(files)),
                 print f
@@ -142,6 +144,16 @@ if not os.path.exists(os.path.join(_data_dir, _files_dir)):
                            open(os.path.join(_data_dir, _files_dir, 'planar', f), 'wb').write)
     ftp.close()
 
+#downloadAllModels()
+
+_files_dir = './LD_NEILSON/DWARFS/'
+# -- read table5.dat
+# -- read the 4 parameters for each band
+for l in open(os.path.join(_data_dir, _files_dir, 'table5.dat')).readlines():
+    for k,w in enumerate(l.split()):
+        nei5[col5[k]].append(float(w))
+
+_files_dir = './LD_NEILSON/GIANTS/'
 # -- read table16.dat
 try:
     for l in open(os.path.join(_data_dir, _files_dir, 'table16.dat')).readlines():
@@ -176,7 +188,7 @@ for c in cols:
 
 # -- Claret 4-coef, for comparison ---------------------------------------
 C4 = {}
-if os.path.exists('ATMO/tableeq5.dat'):
+if os.path.exists('../SPIPS/ATMO/tableeq5.dat'):
     print 'reading Claret+ 2011 4-coef table'
     f = open(os.path.join(_data_dir, 'ATMO/tableeq5.dat'))
     for l in f.readlines():
@@ -296,10 +308,8 @@ def referee():
              label='V and x scaled')
     plt.plot(x, np.abs(Vc), '-r', label='clipped', linestyle='dashed')
     plt.plot(x, np.abs(Vcs), '-r', label='clipped & scaled')
-
     plt.ylim(0.0,0.1)
     plt.legend(loc='lower left')
-
     return
 
 def _rossWL(wl, param):
@@ -343,9 +353,9 @@ def _udld(filename, plot=False, planar=False, showNeilson=False, reslim=0.05):
         rossFromTable = rossTable['Ross/Outer'][i]
         if plot:
             print "Rosseland from:"
-            print "Teff=", rossTable['Teff'][i]
-            print "logg=", rossTable['logg'][i]
-            print "mass=", rossTable['mass'][i]
+            print "Teff=%4.0fK (instead of %4.0f)"%( rossTable['Teff'][i], Teff)
+            print "logg=%4.2f (instead of %4.2f)"%( rossTable['logg'][i], logg)
+            print "mass=%4.2f (instead of %4.2f)"%( rossTable['mass'][i], mass)
 
     # keep only bands
     cols = cols[1:]
@@ -357,41 +367,49 @@ def _udld(filename, plot=False, planar=False, showNeilson=False, reslim=0.05):
 
         # -- main plot:
         plt.close(plot)
-        plt.figure(plot, figsize=(7,6))
-        plt.subplots_adjust(left=0.08, bottom=0.10,
-                            top=0.90, right=0.95,
+        plt.figure(plot, figsize=(8,8))
+        plt.subplots_adjust(left=0.1, bottom=0.06,
+                            top=0.92, right=0.95,
                             wspace=0.26)
         plt.suptitle(os.path.basename(filename), size=20)
+        # ax1 = plt.subplot(221)
+        # ax2 = plt.subplot(222)
+        # ax3 = plt.subplot(224, sharex=ax2)
+        # ax4 = plt.subplot(223)
+
         ax1 = plt.subplot(221)
-        #axv = plt.subplot(223, sharex = ax1) # -- variation of I
-        #axv.semilogy()
-        #axv.set_ylim(1, 200)
+        ax2 = plt.subplot(422); ax3 = plt.subplot(424, sharex=ax2)
+        ax2 =None; ax3 = plt.subplot(222)
+        ax4 = plt.subplot(413)
+        ax4r = plt.subplot(414, sharex=ax4)
+
+
         ax1.set_ylim(0,0.85)
         ax1.set_xlim(0.985, 1.02)
         ax1.set_xticks([0.99, 1.0, 1.01])
         ax1.set_xlabel('$r/r_\mathrm{Ross}$')
         ax1.set_ylabel('intensity: I / I(max)')
-        #axv.set_ylabel('- dI / dr')
 
-        ax2 = plt.subplot(222)
-        ax2.set_ylabel(r'V$^2$')
-        ax2.set_ylim(0.0, 1.0)
+        if not ax2 is None:
+            ax2.set_ylabel(r'V$^2$')
+            ax2.set_ylim(0.0, 1.0)
 
-        ax3 = plt.subplot(224, sharex=ax2)
-        ax3.set_ylabel(r'UD / Ross. (single baseline)')
+        ax3.set_ylabel(r'UD / Ross. (single B)')
         ax3.set_xlabel(r'$\pi$B$\theta$/$\lambda$')
-        ax3.set_ylim(0.9, 1.0)
+        ax3.set_ylim(0.88, 0.99)
 
-        ax4 = plt.subplot(223)
-        ax4.set_xlabel(r'$\pi$B$\theta$/$\lambda$')
-        ax4.set_ylabel(r'V$^2$ (%)')
+        ax4r.set_xlabel(r'$\pi$B$\theta$/$\lambda$')
+        ax4.set_ylabel(r'V$^2$')
+        ax4r.grid()
+        ax4r.set_ylim(-1.5, 1.5)
+        ax4r.set_ylabel(r'$\Delta V^2$ (1e-4)')
 
         # -- LD analytical check
         if False:
             plt.close(1+plot)
             plt.figure(1+plot)
             plt.suptitle(os.path.basename(filename), size=20)
-            plt.subplots_adjust(left=0.08, bottom=0.10,
+            plt.subplots_adjust(left=0.1, bottom=0.10,
                                 top=0.90, right=0.95,
                                 wspace=0.26)
             ax0 = plt.subplot(121)
@@ -457,32 +475,34 @@ def _udld(filename, plot=False, planar=False, showNeilson=False, reslim=0.05):
 
     # -- Compute the visibility profile
     r = np.sqrt(1-data['mu']**2)/np.sqrt(1-mu0**2)
-    x1 = np.linspace(0, 4, 100) # first lobe
-    x2 = np.linspace(3., 6.5, 100) # first and second lobes
+    Imu_ud = (r<=1)#*np.abs(np.gradient(data['mu'])/np.gradient(r))
 
+    # -- Changes of variable mu->r
+    #dr_dmu = np.abs(np.gradient(r)/np.gradient(data['mu']))
+
+    # -- dr_dmu does not work :(
+    dr_dmu = np.ones(len(r))
+
+    x1 = np.linspace(0, 4.2, 100) # first lobe, x1[0] needs to be 0!
+    # -- range for power law fit in [pi B theta / lambda]
+    x2 = np.linspace(.5, 8., 300) # first and second lobes
+
+    # -- no dr_dmu here because the intensity is already in r
     V2ud = np.trapz(special.jv(0,x1[None,:]*r[:,None])*
-                 ((r[:,None]<=1)*r[:,None]), r[:,None], axis=0)**2
-    V2ud /= np.trapz(special.jv(0,0)*((r<=1)*r), r)**2
+                    Imu_ud[:,None]*r[:,None]*dr_dmu[:,None],
+                    r[:,None], axis=0)**2
+    # -- normalize by 0-frequency
+    V2ud /= np.trapz(special.jv(0,0)*Imu_ud*r*dr_dmu, r)**2
 
     if plot:
-        # ax1.plot([rossMaxVar, rossMaxVar], [0, 1.], '--', color='r',
-        #         label=r'max. var.')
-        # ax1.plot([rossInfty, rossInfty], [0, 1.], '--', color='g',
-        #         label = r'$1/\lambda^{%3.1f} \rightarrow 0$'%_p)
-        ax1.plot([1., 1], [0, 1], '--', color='0.5')
-        #ax1.text(1, 0.02,'Rosseland radius', color='0.5',
+        # -- Rosseland
+        ax1.plot([1., 1], [0, 1], '-', color='k', alpha=0.5)
+        # -- Outer Diameter
+        #ax1.plot([1/rossFromTable, 1/rossFromTable], [0,1], '-', color='0.5')
+        #ax1.text(1/rossFromTable,0.02, "Model's outer radius", color='0.5',
         #        rotation=90, va='bottom')
-        # ax1.text(1.0, 0.6, 'Ross. SATLAS',
-        #         color='0.5',rotation=90, va='center', ha='left')
-        ax1.plot([1/rossFromTable, 1/rossFromTable], [0,1], '-', color='0.5')
-        ax1.text(1/rossFromTable,0.02, "Model's outer radius", color='0.5',
-                rotation=90, va='bottom')
-        #axv.plot([1,1], [1, 200], '-', color='0.5')
-        # # axv.plot([aL[1]/ross, aL[1]/ross], [1, 200.], '-', color='g')
-        # axv.text(aL[1]/ross, 10, 'Ross.$_\infty$',
-        #                 color='g',rotation=90, va='center', ha='left')
-
-        ax2.plot(x1, V2ud, '-k', linestyle='dashed')
+        if not ax2 is None:
+            ax2.plot(x1, V2ud, '-k', linestyle='dashed')
         if not ax0 is None:
             ax0.vlines(mu0, 0.001, 0.9, color='k', linestyle='dashed')
             ax0.text(mu0, 0.72, 'limb', ha='center', va='bottom')
@@ -521,7 +541,8 @@ def _udld(filename, plot=False, planar=False, showNeilson=False, reslim=0.05):
             maxres2 = np.abs(maxres2).max()
 
             # -- analytical fit
-            ax1.plot(r, data[b], '.-', color=colors[b], label=b)
+            ax1.plot(r, data[b], '-', color=colors[b], label=b,
+                     linewidth=2)
             #axv.plot(r, -np.gradient(data[b])/np.gradient(r), '.-', color=colors[b], label=b)
             if not ax0 is None:
                 ax0.plot(data['mu'], data[b], '.', color=colors[b],
@@ -562,15 +583,15 @@ def _udld(filename, plot=False, planar=False, showNeilson=False, reslim=0.05):
 
         # -- compute visibility of true profile, in the first lobe
         V2 = np.trapz(special.jv(0,x1[None,:]*r[:,None])*
-                 (data[b][:,None]*r[:,None]), r[:,None], axis=0)**2
+                 (data[b][:,None]*r[:,None])*dr_dmu[:,None], r[:,None], axis=0)**2
         V2 /= V2[0]
 
-        if plot:
-            ax2.plot(x1, V2, color=colors[b])
+        if plot and not ax2 is None:
+           ax2.plot(x1, V2, color=colors[b])
 
         c = np.interp(V2[::-1], V2ud_x(x1[::-1]), x1[::-1])[::-1]/x1
         fit = dpfit.leastsqFit(UDLD_x, x1[len(c)/4:],
-                         {'A0':c[2:].mean(),  'Ap':0.05, 'p':2.8},
+                         {'A0':c[2:].mean(), 'Ap':0.05, 'p':2.8},
                          c[len(c)/4:])
         res[b] = fit['best']
         res[b]['_V2'] = V2
@@ -594,16 +615,22 @@ def _udld(filename, plot=False, planar=False, showNeilson=False, reslim=0.05):
                                 V2, verbose=0)
         res[b]['alpha'] = alpha['best']
         if plot:
-            plt.plot(x2, 100*V2, '-', color='k', alpha=0.5)
+            ax4.plot(x2, V2, '-', color='k', alpha=0.5)
             lab = ''#b+':'
             lab += r'$\alpha$='
-            lab += '%4.2f'%alpha['best']['alpha']
+            #lab += '%5.3f $\pm$ %5.3f'%(alpha['best']['alpha'], alpha['uncer']['alpha'])
+            lab += '%5.3f'%(alpha['best']['alpha'])
             lab += r' LD-Ross='
-            lab += '%3.1f'%(100*(alpha['best']['diam']-1))
+            lab += '%5.2f'%(100*(alpha['best']['diam']-1))
             lab += '%'
-
-            plt.plot(x2, 100*alpha['model'], '-', color=colors[b],
+            ax4.plot(x2, alpha['model'], '-', color=colors[b],
                 linestyle='dashed', label=lab)
+            #ax4r.plot(x2, (V2-alpha['model'])/V2, color=colors[b],)
+            ax4r.plot(x2, 1e4*(V2-alpha['model']), color=colors[b],)
+            _r = np.linspace(0.95, 1.0, 100)
+            _mu = np.sqrt(1-_r**2)
+            ax1.plot(_r*alpha['best']['diam'], _mu**alpha['best']['alpha'],
+                color=colors[b],linestyle='dotted')
 
     if plot:
         if not ax0 is None:
@@ -617,12 +644,15 @@ def _udld(filename, plot=False, planar=False, showNeilson=False, reslim=0.05):
                 axp.legend(loc='upper right', prop={'size':10})
             axp.semilogy();
 
-        ax1.legend(loc='upper right', prop={'size':10})
-        ax3.legend(loc='upper left', prop={'size':10})
+        ax1.legend(loc='upper right', prop={'size':8})
+        ax3.legend(loc='lower left', prop={'size':8})
         ax3.grid()
         ax4.set_xlim(x2.min(),x2.max())
-        ax4.set_ylim(-0.1,4)
-        ax4.legend(loc='upper left', prop={'size':8})
+        #ax4.set_ylim(0,0.016)
+        ax4.set_yscale('log')
+        ax4.set_ylim(1e-6, 1)
+        #ax4.set_xlim(3.5,x2.max())
+        ax4.legend(loc='lower left', prop={'size':6})
     else:
         return res
 
@@ -851,11 +881,6 @@ def fitDiamModel(oifits, model=None, figure=0, bootstrapping=False, firstGuess=3
         plt.suptitle(os.path.basename(oifits)+
                      '\nSATLAS [%s-band] Teff=%4.0fK logg=%4.2f M=%3.1fMsol'%(
                      band, _mdata['Teff'], _mdata['logg'], _mdata['mass']), fontsize=16)
-        # ax1 = plt.subplot(221)
-        # ax1.plot(_mdata['r'], _mdata[band], color='r')
-        # ax1.plot(_mdata['r'], _mdata['r']<=1, color='b')
-        # ax1.set_xlabel(r'r / r$_\mathrm{Ross}$')
-        # ax1.set_ylabel('I/Imax')
 
         ax2 = plt.subplot(121)
         ax2.plot(_mdata['r']*fit['best']['diam']/2., _mdata[band], color='r',
@@ -948,11 +973,26 @@ def fitDiamModel(oifits, model=None, figure=0, bootstrapping=False, firstGuess=3
 
     return
 
+def _Vld(base, diam, wavel, alpha=0.36):
+    """
+    Hestroffer LD (power law)
+    """
+    nu = alpha /2. + 1.
+    diam *= np.pi/(180*3600.*1000)
+    x = -1.*(np.pi*diam*base/wavel)**2/4.
+    V_ = 0
+    for k_ in range(100):
+        V_ += scipy.special.gamma(nu + 1.)/\
+              scipy.special.gamma(nu + 1. + k_)/\
+              scipy.special.gamma(k_ + 1.) *x**k_
+    return V_
+
 def v2Alpha(bw, param):
     """
     param = {'diam':, 'alpha':}
     """
     if 'R' in param.keys():
+        # -- bandwidth smearing:
         res = 0.
         for z in np.linspace(-.4,.4,5):
             res += _Vld(bw, param['diam'], (1.+z/param['R']),
@@ -977,19 +1017,6 @@ def v2Claret4(bw, param):
         res += param['a'+str(i)]*_Vld(bw, param['diam'], 1., alpha=i/2.)
     return res**2
 
-def _Vld(base, diam, wavel, alpha=0.36):
-    """
-    Hestroffer LD (power law)
-    """
-    nu = alpha /2. + 1.
-    diam *= np.pi/(180*3600.*1000)
-    x = -1.*(np.pi*diam*base/wavel)**2/4.
-    V_ = 0
-    for k_ in range(50):
-        V_ += scipy.special.gamma(nu + 1.)/\
-             scipy.special.gamma(nu + 1.+k_)/\
-             scipy.special.gamma(k_ + 1.) *x**k_
-    return V_
 
 def V2ld_B74(baseline, params):
     """

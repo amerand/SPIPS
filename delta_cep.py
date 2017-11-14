@@ -1,12 +1,14 @@
 import spips
 import delta_cep_data # contains all the observations
+import os
 
+# -- load data from aux file
 obs = delta_cep_data.data
 
 # -- this is the model using splines
 p_splines = {'DIAMAVG':      1.45573 , # Average angular diameter (mas)
             'E(B-V)':       0.09109 , # reddenning
-            'EXCESS EXP':   0.4 , # exponetial law for IR Excess
+            'EXCESS EXP':   0.4 , # exponential law for IR Excess
             'EXCESS SLOPE': 0.06278 , # slope for IR excess
             'EXCESS WL0':   1.2 , # starting WL, in um, for IR Excess
             'METAL':        0.06 , # metalicity / solar
@@ -75,7 +77,6 @@ p_fourier = {'DIAMAVG':      1.45593 ,
         }
 
 def fit(p=None):
-    global obs
     if p is None:
         p = p_splines
     # - list parameters which we do not wish to fit
@@ -95,7 +96,25 @@ def fit(p=None):
     spips.dispCor(fit) # show the correlation matrix between parameters
 
 def show(p=None):
-    global obs
     if p is None:
         p = p_splines
-    Y = spips.model(obs, p, title='delta Cep', verbose=True, plot=True)
+    Y = spips.model(obs, p, starName='delta Cep', verbose=True, plot=True)
+
+def fitsDemo(mode='export', p=None):
+    if p is None:
+        p = p_splines
+
+    if mode=='export':
+        Y = spips.model(obs, p, starName='delta Cep',
+                        exportFits=True, verbose=True)
+    elif mode=='import':
+        filename = 'delta_cep.fits'
+        if os.path.exists(filename):
+            _p, _obs = spips.importFits(filename)
+            Y = spips.model(_obs, _p, starName='delta Cep', verbose=True,
+                            plot=True)
+        else:
+            print 'ERROR:', filename, 'does not exist!'
+    else:
+        print "use: fitsDemo(mode='export')"
+        print "  or fitsDemo(mode='import')"

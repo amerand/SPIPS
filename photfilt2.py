@@ -11,8 +11,6 @@ http://svo2.cab.inta-csic.es/theory/fps3/fps.php?ID=Generic/Bessell.U
 import os, sys
 import numpy as np
 import urllib2
-from scipy import weave
-from scipy.weave import converters
 
 _dir = '../SPIPS/DATA/FILTERS' # will automatically loads all filters from there
 
@@ -90,6 +88,40 @@ def sliding_avg_interp1d(x,y,x0,dx0=None):
         x0 = np.array(x0)
     if dx0==None:
         dx0 = np.gradient(x0)
+    y0 = np.zeros(len(x0))
+
+    for i in range(len(x0)):
+        # -- slow :(
+        #y0[i] = np.mean(y[(x>=x0[i]-dx0[i]/2)*(x<x0[i]+dx0[i]/2)])
+        # -- faster
+        y0[i] = np.mean(y[np.searchsorted(x, x0[i]-dx0[i]/2., side='left'):
+                          np.searchsorted(x, x0[i]+dx0[i]/2., side='right')])
+
+    if not all(np.isfinite(y0)):
+        wf = np.where(np.isfinite(y0))
+        wi = np.where(1-np.isfinite(y0))
+        y0[wi] = np.interp(x0[wi], x0[wf], y0[wf])
+    return y0
+
+def sliding_avg_interp1d_WEAVE(x,y,x0,dx0=None):
+    """
+    use to interpret y(x) for x0+-dx0/2.
+
+    use if y is over-resolved compared to dx0 (same shape as x0)
+
+    assumes x and x0 sorted!!!
+    """
+    from scipy import weave
+    from scipy.weave import converters
+
+    if not isinstance(x, np.ndarray):
+        x = np.array(x)
+    if not isinstance(y, np.ndarray):
+        y = np.array(y)
+    if not isinstance(x0, np.ndarray):
+        x0 = np.array(x0)
+    if dx0==None:
+        dx0 = np.gradient(x0)
 
     LX = len(x)
     LX0 = len(x0)
@@ -142,13 +174,20 @@ def _atmoTrans(wl):
         n = len(_atmoData)
     except:
         f = open('../SPIPS/DATA/ATMO/transmission_300_5000_pwv10.txt')
-        #f = open(os.path.join(d, '../ROTASTAR/DATA/ATMO/transmission_300_5000_pwv5.txt'))
         _atmoData = []
         for l in f.readlines():
             _atmoData.append([float(l.split()[0])/1000., float(l.split()[1])])
         f.close()
         _atmoData = np.array(_atmoData)
-    return np.interp(wl, _atmoData[:,0], _atmoData[:,1])
+    expo = 1.5 #  <1. to crudly decrease water vapor, 0 to eliminate it
+    return np.interp(wl, _atmoData[:,0], _atmoData[:,1]**expo)
+
+def _ccd(wl):
+    # -- http://www.faculty.virginia.edu/rwoclass/astr511/im/ESO-ccdQEs.gif
+    # -- "EEV Average"
+    _wl = [.3, .325, .35, .375, .4, .45, .5, .55, .6, .65, .7, .75, .8, .85, .9, .95, 1., 1.1]
+    _T =  [0., .45, .55, .7,  .8,  .9,  .92, .9, .9, .85, .8, .7,  .57, .45, .3, .15, .5, 0]
+    return np.interp(wl, _wl, _T)
 
 def Transmission(filtname, withAtmo='auto'):
     global _data
@@ -200,8 +239,10 @@ def LoadFilters(directory=_dir):
         lines = f.readlines()
         tmp = {}
         prof = []
+        #print '-'*80
         for l in lines:
             if '<PARAM' in l and not 'ProfileReference' in l:
+                #print Tag(l, 'name')
                 try:
                     tmp[Tag(l, 'name')] = float(Tag(l,'value'))
                 except:
@@ -224,16 +265,13 @@ def LoadFilters(directory=_dir):
         else:
             typ = tmp['ID'].split('/')[0]
 
-        # -- KLUDGE!
-        if 'GCPD/Walraven' in tmp['ID']:
-            k = band.upper()+'_W_GCPD'
-        elif tmp['ID'].startswith('Walraven'):
-            k = band.upper()+'_W'
-        elif 'GCPD/Stromgren' in tmp['ID']:
-            k = band.upper()+'_ST_GCPD'
-        else:
-            k = band.upper()+'_'+typ.upper()
-
+        # -- name of filter == name of file
+        k = fil.split('.')[:-1] # remove .xml
+        if 'Generic' in k:
+            k.remove('Generic')
+        if len(k)>2 and k[-2]==k[-3]:
+            k.pop(-2)
+        k = k[-1]+'_'+'_'.join(k[:-1])
         res[k] = tmp
     #__WalravenFilters()
     return res
@@ -331,7 +369,7 @@ def _OGLE():
     QE = np.array(QE)
 
     V = {'Description': 'OGLE V',
-        'ID':'Generic/OGLE.V',
+        'ID':'OGLE/SPIPS.V',
         'FWHM': 110,
         'PhotSystem': 'Vega',
         'WavelengthPeak': -1,
@@ -360,7 +398,7 @@ def _OGLE():
     writeFilter(V)
 
     I = {'Description': 'OGLE I',
-        'ID':'Generic/OGLE.I',
+        'ID':'OGLE/SPIPS.I',
         'FWHM': 110,
         'PhotSystem': 'Vega',
         'WavelengthPeak': -1,
@@ -388,6 +426,43 @@ def _OGLE():
     I['ZeroPoint'] = convert_Wm2um_to_Jy(1.14521005341e-08 , I['WavelengthEff']/1e4)
     writeFilter(I)
     return
+
+def _OGLE_MG():
+    """
+    calibrated from Martin Groenewegen, email from Alex 2017/
+    """
+    zp_jy = {'u':2012.02405, 'b':3861.51953, 'v':3625.37329, 'i':2369.19482}
+    for band in ['u','b','v','i']:
+        T = {'Description': 'OGLE %s calibrated by M. Groenewegen'%band.upper(),
+            'ID':'OGLE/MG.'+band.upper(),
+            'FWHM': 110,
+            'PhotSystem': 'Vega',
+            'WavelengthPeak': -1,
+            'WavelengthMin': -1,
+            'WavelengthMax': -1,
+            'WavelengthMean': -1,
+            'WavelengthEff': -1,
+            'WidthEff': -1,
+             }
+        f = open(os.path.join(_dir, band+'_ogle.dat'))
+        profile = []
+        for l in f.readlines():
+            #print '"'+l+'"'
+            if len(l.strip())>5:
+                profile.append([float(l.split()[0]), float(l.split()[1])])
+        f.close()
+        profile = np.array(profile)
+        profile[0,1] = 0 # 0 at the edge
+        profile[-1,1] = 0 # 0 at the edge
+        T['WavelengthMean'] = np.sum(profile[:,1]*profile[:,0])/np.sum(profile[:,1])
+        T['WavelengthEff'] = np.sum(profile[:,1]*profile[:,0])/np.sum(profile[:,1])
+        T['WavelengthMin'] = np.min(profile[:,0])
+        T['WavelengthMax'] = np.max(profile[:,0])
+        T['WavelengthPeak'] = profile[np.argmax(profile[:,1]),0]
+        T['profile'] = (profile[:,0]/10000, profile[:,1])
+        T['ZeroPoint'] = zp_jy[band]
+        writeFilter(T)
+    pass
 
 def _HipparcosBessell2000():
     """

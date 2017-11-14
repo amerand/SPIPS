@@ -24,6 +24,7 @@ http://www.rhinocerus.net/forum/lang-idl-pvwave/355826-generalized-least-squares
 """
 
 verboseTime=time.time()
+Ncalls=0
 
 def example():
     """
@@ -188,6 +189,7 @@ def meta(x, params):
         res += dpfunc.__dict__[ff](x, tmp)
     return res
 
+Ncalls=0
 def leastsqFit(func, x, params, y, err=None, fitOnly=None,
                verbose=False, doNotFit=[], epsfcn=1e-7,
                ftol=1e-5, fullOutput=True, normalizedUncer=True,
@@ -230,6 +232,7 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
     'cov': covariance matrix (normalized if normalizedUncer)
     'fitOnly': names of the columns of 'cov'
     """
+    global Ncalls
     # -- fit all parameters by default
     if fitOnly is None:
         if len(doNotFit)>0:
@@ -249,6 +252,7 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
     if verbose:
         print '[dpfit] %d FITTED parameters:'%(len(fitOnly)), fitOnly
     # -- actual fit
+    Ncalls=0
     plsq, cov, info, mesg, ier = \
               scipy.optimize.leastsq(_fitFunc, pfit,
                     args=(fitOnly,x,y,err,func,pfix,verbose,follow,),
@@ -289,7 +293,7 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
         else:
             i = fitOnly.index(k)
             if cov is None:
-                uncer[k]=-1
+                uncer[k]= -1
             else:
                 uncer[k]= np.sqrt(np.abs(np.diag(cov)[i]))
                 if normalizedUncer:
@@ -475,7 +479,9 @@ def _fitFunc(pfit, pfitKeys, x, y, err=None, func=None,
              [ 0, err2**2, 0, .., 0],
              [0, .., 0, errN**2]]) is the equivalent of 1D errors
     """
-    global verboseTime
+    global verboseTime, Ncalls
+    Ncalls+=1
+
     params = {}
     # -- build dic from parameters to fit and their values:
     for i,k in enumerate(pfitKeys):
@@ -515,9 +521,9 @@ def _fitFunc(pfit, pfitKeys, x, y, err=None, func=None,
             except:
                 res.append(df)
 
-    if verbose and time.time()>(verboseTime+1):
+    if verbose and time.time()>(verboseTime+5):
         verboseTime = time.time()
-        print time.asctime(),
+        print '[dpfit]', time.asctime(), '%5d'%Ncalls,
         try:
             chi2=(res**2).sum/(len(res)-len(pfit)+1.0)
             print 'CHI2: %6.4e'%chi2,
@@ -568,6 +574,53 @@ def _ellParam(sA2, sB2, sAB):
     sma = np.sqrt(1/2.*(sA2+sB2+np.sqrt((sA2-sB2)**2+4*sAB**2)))
 
     return sMa, sma, a
+
+def dispCor(fit):
+    # -- parameters names:
+    nmax = np.max([len(x) for x in fit['fitOnly']])
+    fmt = '%%%ds'%nmax
+    fmt = '%2d:'+fmt
+    print '|Correlations| ',
+    print'\033[45m>=.9\033[0m',
+    print'\033[41m>=.8\033[0m',
+    print'\033[43m>=.7\033[0m',
+    print'\033[100m>=.5\033[0m',
+    print'\033[0m>=.2\033[0m',
+    print'\033[90m<.2\033[0m'
+
+    print ' '*(2+nmax),
+    for i in range(len(fit['fitOnly'])):
+        print '%3d'%i,
+    print ''
+    for i,p in enumerate(fit['fitOnly']):
+        print fmt%(i,p),
+        for j, x in enumerate(fit['cor'][i,:]):
+            if i==j:
+                c = '\033[2m'
+            else:
+                c = '\033[0m'
+            if i!=j:
+                if abs(x)>=0.9:
+                    col = '\033[45m'
+                elif abs(x)>=0.8:
+                    col = '\033[41m'
+                elif abs(x)>=0.7:
+                    col = '\033[43m'
+                elif abs(x)>=0.5:
+                    col = '\033[100m'
+                elif abs(x)<0.2:
+                    col = '\033[90m'
+                else:
+                    col = ''
+            else:
+                col = ''
+            tmp = '%4.1f'%x
+            tmp = tmp.replace('0.', '.')
+            tmp = tmp.replace('1.0', '1.')
+            if i==j:
+                tmp = '###'
+            print c+col+tmp+'\033[0m',
+        print ''
 
 def plotCovMatrix(fit, fig=0):
     if not fig is None:

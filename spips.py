@@ -57,6 +57,8 @@ for d in sys.path:
         _dir_data = os.path.join(d, 'DATA')
         print '\033[43m', _dir_data, '\033[0m'
 
+_dir_export = './'
+
 plt.rc('font', family='monofur', size=9, style='normal')
 #plt.rc('font', family='courier', size=8)
 
@@ -70,6 +72,8 @@ C_pc   = 3.0857e16  # m
 C_Teffsol = 5779.57 # in K
 C_mas = np.pi/(180*3600*1000.) # rad/mas
 
+
+print "==== Spectro/Photo/Interferometry of Pulsating Stars ===="
 
 def clean():
     """
@@ -383,7 +387,9 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
             #             np.array([np.array(o[-2]) for o in obs]),
             #             err=np.array(errs), doNotFit=doNotFit,
             #             fitOnly=fitOnly, verbose=verbose)
-
+        fit['options'] = {'maxfev':maxfev, 'ftol':ftol, 'epsfcn':epsfcn,
+                        'normalizeErrors':normalizeErrors,
+                        'first_guess':first_guess, 'doNotFit':doNotFit}
         if plot:
             model(allobs, fit['best'], plot=True, title=starName, verbose=verbose)
         return fit
@@ -441,7 +447,6 @@ def dispCor(fit):
                 tmp = '###'
             print c+col+tmp+'\033[0m',
         print ''
-
 
 def smartFit(obs, firstGuess, phaseDependent={'VPULS':('spline', 4),'TEFF':('fourier', 4)}, fitPeriod=False):
     """
@@ -511,7 +516,7 @@ def sigmoid(x,x0=0,dx=0.01):
     _x = -dx + 2*((x-x0)%1)*dx
     return ((_s(_x)-_s(-dx))/(_s(dx)-_s(-dx)) + x0)%1.
 
-def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=False,
+def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutliers=False,
           exportFits=False, maxCores=None, splitDTeffects=False):
     """
     returns observable 'x' (Vpuls, photometry, etc) for a given model
@@ -606,7 +611,29 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     useful parameters and that 'A0' will be the gamma velocity for VPULS and the
     average temperature for TEFF.
 
-    Note about redenning: the redenning is corrected using a law
+    Splines can be also defined using a 'comb' for the phase axis. The comb is
+    defined usinf 'POW' and 'PHI0': 'POW' defines the over-density of nodes
+    around phase 'PHI0'. 'POW' of 1 is uniform phase coverage, and larger values
+    of POW will lead to higher densities. Typical value of POW is 2.5. Nodes
+    values can be defined using 'VAL0' for the first one and then using 'DVALi'
+    for i>0. 'VAL0' defines the value of the node for the lowest phase density,
+    which ensures that VAL0 is close to the average value of the profile. This is
+    unfortunately at the expense of naming logic, because one might have expected
+    VAL0 == value at PHI0. Example:
+    {
+    'VRAD DVAL1':   17.301,
+    'VRAD DVAL2':   8.933,
+    'VRAD DVAL3':   -3.685,
+    'VRAD DVAL4':   -11.586,
+    'VRAD DVAL5':   -16.593,
+    'VRAD PHI0':    0.91675,
+    'VRAD POW':     2.388,
+    'VRAD VAL0':    21.612,
+    }
+
+    Note about redenning: the redenning is corrected using a law for ISM
+
+
 
     """
     global phaseOffset
@@ -789,7 +816,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             _kind = a['VPULS KIND']
         else:
             _kind='cubic'
-            fits_model['VPULS KIND'] = 'cubic'
+            fits_model['VPULS SPLINE KIND'] = 'cubic'
 
         Vpuls = interp1d(xp, yp, kind=_kind, fill_value=0.0,
                           assume_sorted=True)(phi_intern)
@@ -803,13 +830,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         #-- assume Fourier coefficients:
         useFourierVpuls=True
 
-        if 'VPULS SKEW' in a.keys() and 'VPULS X0' in a.keys():
-           # -- stretch cosine
-            # xvpuls = np.interp((phi_intern-a['VPULS X0'])%1,
-            #         (0,0.5+a['VPULS SKEW'],1), (0, 0.5, 1))
-            xvpuls = sigmoid(phi_intern, a['VPULS X0'], a['VPULS SKEW'])
-        else:
-            xvpuls = phi_intern
+        xvpuls = phi_intern
 
         Ns = [int(k.split('I')[1]) for k in filter(lambda x: 'VPULS PHI' in x, a.keys())]
         Vpuls = np.ones(Nintern-1)*a['VPULS A0']
@@ -830,6 +851,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                                a['VPULS PHI'+str(k)])
         Vgamma = Vpuls[:-1].mean()
 
+    xv_pow = None
     # -- replicate VRAD points to get phase -4 -> +4
     if any(['VRAD VAL' in k for k in a.keys()]):
         # -- using splines:
@@ -840,6 +862,8 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             # -- checks if values are given with respect to first one:
             ndvpuls = len(filter(lambda x: 'VRAD DVAL' in x, a.keys()))
             nx += ndvpuls
+        else:
+            ndvpuls = 0
         if 'VRAD POW' in a.keys():
             # -- nodes
             #x0 = np.linspace(-0.5, 0.5, nvpuls)
@@ -879,8 +903,8 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         if not x0_i is None:
             x0_i = x0_i*5
 
-        xp = np.array(xp)
-        yp = np.array(yp)
+        xpV = np.array(xp)
+        ypV = np.array(yp)
 
         if not uncer is None:
             ex0 = np.array([uncer['VRAD PHI'+str(k)] for k in range(nvpuls)])%1
@@ -908,11 +932,11 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             _kind = a['VRAD KIND']
         else:
             _kind='cubic'
-            fits_model['VRAD KIND'] = 'cubic'
+            fits_model['VRAD SPLINE KIND'] = 'cubic'
 
-        Vrad = interp1d(xp, yp, kind=_kind, fill_value=0.0,
+        Vrad = interp1d(xpV, ypV, kind=_kind, fill_value=0.0,
                           assume_sorted=True)(phi_intern)
-        Vgamma = interp1d(xp, yp, kind=_kind, fill_value=0.0,
+        Vgamma = interp1d(xpV, ypV, kind=_kind, fill_value=0.0,
                           assume_sorted=True)(np.linspace(0,1,1000)[:-1]).mean()
 
         Vpuls = (Vrad-Vgamma)*a['P-FACTOR'] + Vgamma
@@ -923,13 +947,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         #-- assume Fourier coefficients:
         useFourierVpuls=True
 
-        if 'VRAD SKEW' in a.keys() and 'VRAD X0' in a.keys():
-           # -- stretch cosine
-            xvpuls = np.interp((phi_intern-a['VRAD X0'])%1,
-                    (0,0.5+a['VRAD SKEW'],1), (0, 0.5, 1))
-            xvpuls = sigmoid(phi_intern, a['VRAD X0'], a['VRAD SKEW'])
-        else:
-            xvpuls = phi_intern
+        xvpuls = phi_intern
 
         Ns = [int(k.split('I')[1]) for k in filter(lambda x: 'VRAD PHI' in x, a.keys())]
         Vrad = np.ones(Nintern-1)*a['VRAD A0']
@@ -937,9 +955,9 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         for k in Ns:
             if a.has_key('VRAD A'+str(k)) and \
                a.has_key('VRAD PHI'+str(k)):
-               # -- default behaviorr
-                Vrad += a['VRAD A'+str(k)]*np.cos(2*np.pi*k*xvpuls +
-                                                    a['VRAD PHI'+str(k)])
+                # -- default behavior
+                _phi = xvpuls + a['VRAD PHI'+str(k)]/(2*np.pi)/k
+                Vrad += a['VRAD A'+str(k)]*np.cos(2*np.pi*k*_phi)
             elif a.has_key('VRAD A1') and \
                  a.has_key('VRAD PHI1') and \
                  a.has_key('VRAD R'+str(k)) and \
@@ -1089,6 +1107,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
 
     useSplineTeff, _troll = False, 0.0
     useSplineLum, _vroll = False, 0.0
+    xt_pow = None
     if any([k.startswith('TEFF') for k in a.keys()]):
         if any(['TEFF VAL' in k for k in a.keys()]):
             # -- using splines:
@@ -1096,16 +1115,23 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             # -- get the nodes
             nteff = len(filter(lambda x: 'TEFF VAL' in x, a.keys()))
             nx = nteff
-            if nteff == 1:
+            if nteff == 1: # only val0 is defined
                 ndteff = len(filter(lambda x: 'TEFF DVAL' in x, a.keys()))
                 nx += ndteff
-
-            if 'TEFF POW' in a.keys() or not 'TEFF PHI0' in a.keys():
+            else:
+                ndteff = 0
+            nphi = len(filter(lambda x: 'TEFF PHI' in x, a.keys()))
+            if nphi < nteff or nphi < ndteff-1:
                 # -- if comb is not defined, use the same one as in Vpuls
                 if not 'TEFF PHI0' in a.keys() and 'VPULS PHI0' in a.keys():
                     a['TEFF PHI0'] = a['VPULS PHI0']
                 if not 'TEFF POW' in a.keys() and 'VPULS POW' in a.keys():
                     a['TEFF POW'] = a['VPULS POW']
+                if not 'TEFF PHI0' in a.keys() and 'VRAD PHI0' in a.keys():
+                    a['TEFF PHI0'] = a['VRAD PHI0']
+                if not 'TEFF POW' in a.keys() and 'VRAD POW' in a.keys():
+                    a['TEFF POW'] = a['VRAD POW']
+
                 # -- nodes
                 #x0 = np.linspace(-.5, .5, nteff)
                 #x0 = np.sign(x0)*(np.abs(x0)**a['TEFF POW'])+a['TEFF PHI0']
@@ -1118,7 +1144,6 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             else:
                 # -- create list of nodes:
                 x0 = np.array([a['TEFF PHI'+str(k)] for k in range(nx)])%1
-                xt_pow = None
 
             y0 = [a['TEFF VAL0']]
             if nteff > 1:
@@ -1161,7 +1186,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                 _kind = a['TEFF KIND']
             else:
                 _kind='cubic'
-                fits_model['TEFF KIND'] = _kind
+                fits_model['TEFF SPLINE KIND'] = _kind
             if 'TEFF PHIR' in a.keys():
                 _troll = a['TEFF PHIR']
 
@@ -1177,15 +1202,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             useSplineTeff=False
 
             Teff = np.zeros(Nintern-1)
-
-            if 'TEFF SKEW' in a.keys() and 'TEFF X0' in a.keys():
-               # -- stretch cosine
-                xteff = np.interp((phi_intern-a['TEFF X0'])%1,
-                        (0,0.5+a['TEFF SKEW'],1), (0, 0.5, 1))
-                xteff = sigmoid(phi_intern, a['TEFF X0'], a['TEFF SKEW'])
-            else:
-                xteff = phi_intern
-
+            xteff = phi_intern
 
             Ns = [int(k.split('I')[1]) for k in filter(lambda x: 'TEFF PHI' in x, a.keys())]
             if 'TEFF A0' in a:
@@ -1256,7 +1273,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                 _kind = a['LUM KIND']
             else:
                 _kind='quadratic'
-                fits_model['LUM KIND'] = 'quadratic'
+                fits_model['LUM SPLINE KIND'] = 'quadratic'
             Lum = interp1d(xpT, ypT,
                             kind=_kind,
                             assume_sorted=1,
@@ -1317,14 +1334,23 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     if verbose:
         print 'Mbol from %5.3f to %5.3f, AVG: %5.3f'%(
         Mbol[w].min(), Mbol[w].max(), Mbol[w].mean())
-    fits_model['AVG_MBOL'] = round(Mbol[w].mean(), 3)
 
+        if verbose and not xv_pow is None:
+            print 'VRAD/VPULS Spline Comb  :', np.round(xv_pow, 4)
+            print 'VRAD/VPULS Spline values:', np.round(ypV[:len(xv_pow)], 2)
+
+        if verbose and not xt_pow is None:
+            print 'TEFF       Spline Comb  :', np.round(xt_pow, 4)
+            print 'TEFF       Spline values:', np.round(ypT[:len(xt_pow)], 1)
+
+    fits_model['AVG_MBOL'] = round(Mbol[w].mean(), 3)
 
     # compute results table
     res = np.zeros(len(mjd))
     res = []
     list_filt = []
-    list_color= []
+    list_color = []
+    figures = []
 
     # spectroscopy additional parameters:
     if a.has_key('Vspec'):
@@ -1515,7 +1541,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                 if np.isnan(phi[k]) :
                     wei = 1.
                     # -- unknown phase: can be any phase
-                    _y = [_tmp(x) for x in np.linspace(0,1,40)[:-1]]
+                    _y = [_tmp(_x) for _x in np.linspace(0,1,40)[:-1]]
                     if obs[-2] >= max(_y): # compare range to measurement
                         res.append(wei*max(_y)+(1-wei)*np.mean(_y))
                     elif obs[-2] <= min(_y):
@@ -1576,78 +1602,77 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                        elif 'color' in o[1] and o[2].split('-')[1] in k:
                            res[i] -= a[k]
         if not all(np.isfinite(res)):
-            print "WARNING! nan or infinites detected in model's result for",
-            print set([x[k][1] for k in range(len(x)) if not np.isfinite(res[k])])
-        return res
-    else:
-        #-- compute observables to plot later. use parallel version
-        list_filt = []
-        list_flux = []
-        list_color = []
-        for k, obs in enumerate(x):
-            if obs[1].split(';')[0]=='mag':
-                if not obs[2] in list_filt:
-                    list_filt.append(obs[2])
-            if obs[1].split(';')[0]=='flux':
-                if not obs[2] in list_filt:
-                    list_flux.append(obs[2])
-            if obs[1].split(';')[0]=='color':
-                if not obs[2] in list_color:
-                    list_color.append(obs[2])
+            print "WARNING! nan or infinites detected in model's result",
+            #print set([x[k][1] for k in range(len(x)) if not np.isfinite(res[k])])
+        if not exportFits:
+            return res
+    #-- compute observables to plot later. use parallel version
+    list_filt = []
+    list_flux = []
+    list_color = []
+    for k, obs in enumerate(x):
+        if obs[1].split(';')[0]=='mag':
+            if not obs[2] in list_filt:
+                list_filt.append(obs[2])
+        if obs[1].split(';')[0]=='flux':
+            if not obs[2] in list_filt:
+                list_flux.append(obs[2])
+        if obs[1].split(';')[0]=='color':
+            if not obs[2] in list_color:
+                list_color.append(obs[2])
 
-        list_all_filt = list(list_filt)
-        list_all_filt.extend([l.split('-')[0].strip() for l in list_color])
-        list_all_filt.extend([l.split('-')[1].strip() for l in list_color])
-        list_all_filt=list(set(list_all_filt))
+    list_all_filt = list(list_filt)
+    list_all_filt.extend([l.split('-')[0].strip() for l in list_color])
+    list_all_filt.extend([l.split('-')[1].strip() for l in list_color])
+    list_all_filt=list(set(list_all_filt))
 
-        ### sort by effective wavelength:
-        wl_filt = np.array([photfilt2.effWavelength_um(l) for l in list_all_filt])
-        list_all_filt = np.array(list_all_filt)[wl_filt.argsort()]
-        wl_filt = np.array([photfilt2.effWavelength_um(l) for l in list_filt])
-        list_filt = np.array(list_filt)[wl_filt.argsort()]
+    ### sort by effective wavelength:
+    wl_filt = np.array([photfilt2.effWavelength_um(l) for l in list_all_filt])
+    list_all_filt = np.array(list_all_filt)[wl_filt.argsort()]
+    wl_filt = np.array([photfilt2.effWavelength_um(l) for l in list_filt])
+    list_filt = np.array(list_filt)[wl_filt.argsort()]
 
-        wl_color = [0.5*(photfilt2.effWavelength_um(f.split('-')[0])+
-                         photfilt2.effWavelength_um(f.split('-')[1])) for f in list_color]
-        list_color = np.array(list_color)[np.argsort(wl_color)]
+    wl_color = [0.5*(photfilt2.effWavelength_um(f.split('-')[0])+
+                     photfilt2.effWavelength_um(f.split('-')[1])) for f in list_color]
+    list_color = np.array(list_color)[np.argsort(wl_color)]
 
+    if verbose:
+        print '-'*82
+        print 'Photometric Zero Points and redenning:'
+        print '  - A_lambda for Rv=%4.2f, Teff=4500, 5500, 6500K'%(Rv)
+        print '  - unred Mag for 1mas diameter, Teff=4500K, 5500K, 6500K, logg=1.5:'
+    for l in list_all_filt:
+        if __monochromaticAlambda:
+            al = (Alambda_Exctinction(photfilt2.effWavelength_um(l),EB_V=1.0, Rv=Rv),
+                  Alambda_Exctinction(photfilt2.effWavelength_um(l),EB_V=1.0, Rv=Rv),
+                  Alambda_Exctinction(photfilt2.effWavelength_um(l),EB_V=1.0, Rv=Rv))
+        else:
+            al = (Alambda_Exctinction(l, EB_V=1.0, Rv=Rv, Teff=4500),
+                  Alambda_Exctinction(l, EB_V=1.0, Rv=Rv, Teff=5500),
+                  Alambda_Exctinction(l, EB_V=1.0, Rv=Rv, Teff=6500))
         if verbose:
-            print '-'*82
-            print 'Photometric Zero Points and redenning:'
-            print '  - A_lambda for Rv=%4.2f, Teff=4500, 5500, 6500K'%(Rv)
-            print '  - unred Mag for 1mas diameter, Teff=4500K, 5500K, 6500K, logg=1.5:'
-        for l in list_all_filt:
-            if __monochromaticAlambda:
-                al = (Alambda_Exctinction(photfilt2.effWavelength_um(l),EB_V=1.0, Rv=Rv),
-                      Alambda_Exctinction(photfilt2.effWavelength_um(l),EB_V=1.0, Rv=Rv),
-                      Alambda_Exctinction(photfilt2.effWavelength_um(l),EB_V=1.0, Rv=Rv))
-            else:
-                al = (Alambda_Exctinction(l, EB_V=1.0, Rv=Rv, Teff=4500),
-                      Alambda_Exctinction(l, EB_V=1.0, Rv=Rv, Teff=5500),
-                      Alambda_Exctinction(l, EB_V=1.0, Rv=Rv, Teff=6500))
-            if verbose:
-                print ' %-18s  %6.3f[um] %5.4e[W/m2/um] Al=%5.3f, %5.3f, %5.3f Mag=%6.3f, %6.3f, %6.3f'%(l,
-                    photfilt2.effWavelength_um(l), photfilt2.zeroPoint_Wm2um(l),
-                    al[0], al[1], al[2],
-                    photometrySED(1.0, 4500.0, l, logg=1.5, metal=a['METAL']),
-                    photometrySED(1.0, 5500.0, l, logg=1.5, metal=a['METAL']),
-                    photometrySED(1.0, 6500.0, l, logg=1.5, metal=a['METAL']),)
+            print ' %-18s  %6.3f[um] %5.4e[W/m2/um] Al=%5.3f, %5.3f, %5.3f Mag=%6.3f, %6.3f, %6.3f'%(l,
+                photfilt2.effWavelength_um(l), photfilt2.zeroPoint_Wm2um(l),
+                al[0], al[1], al[2],
+                photometrySED(1.0, 4500.0, l, logg=1.5, metal=a['METAL']),
+                photometrySED(1.0, 5500.0, l, logg=1.5, metal=a['METAL']),
+                photometrySED(1.0, 6500.0, l, logg=1.5, metal=a['METAL']),)
 
-            fits_model['ZP_WM2UM '+l] = photfilt2.zeroPoint_Wm2um(l)
-            fits_model['MAG_1MAS_4500K_LOGG1.5 '+l] = round(photometrySED(1.0, 4500.0, l, logg=1.5, metal=a['METAL'])[0][0], 3)
-            fits_model['MAG_1MAS_5500K_LOGG1.5 '+l] = round(photometrySED(1.0, 5500.0, l, logg=1.5, metal=a['METAL'])[0][0], 3)
-            fits_model['MAG_1MAS_6500K_LOGG1.5 '+l] = round(photometrySED(1.0, 6500.0, l, logg=1.5, metal=a['METAL'])[0][0], 3)
-            fits_model['ALAMBDA 4500K'+l] = round(al[0], 5)
-            fits_model['ALAMBDA 5500K'+l] = round(al[1], 5)
-            fits_model['ALAMBDA 6500K'+l] = round(al[2], 5)
+        fits_model['ZP_WM2UM '+l] = photfilt2.zeroPoint_Wm2um(l)
+        fits_model['MAG_1MAS 4500K_LOGG1.5 '+l] = round(photometrySED(1.0, 4500.0, l, logg=1.5, metal=a['METAL'])[0][0], 3)
+        fits_model['MAG_1MAS 5500K_LOGG1.5 '+l] = round(photometrySED(1.0, 5500.0, l, logg=1.5, metal=a['METAL'])[0][0], 3)
+        fits_model['MAG_1MAS 6500K_LOGG1.5 '+l] = round(photometrySED(1.0, 6500.0, l, logg=1.5, metal=a['METAL'])[0][0], 3)
+        fits_model['ALAMBDA 4500K '+l] = round(al[0], 5)
+        fits_model['ALAMBDA 5500K '+l] = round(al[1], 5)
+        fits_model['ALAMBDA 6500K '+l] = round(al[2], 5)
 
-        # if verbose:
-        #    print '-'*20, 'Computing observables:', '-'*20
-        # res = model(x,a, plot=False) # much slower (single processor) but useful for debug
+    # if verbose:
+    #    print '-'*20, 'Computing observables:', '-'*20
+    # res = model(x,a, plot=False) # much slower (single processor) but useful for debug
 
-        if verbose:
-             print '-'*20, 'Computing observables on multi-cores:', '-'*20
-        res = modelM(x, a, maxCores=maxCores) # much faster (multi processor)
-
+    if verbose:
+         print '-'*20, 'Computing observables on multi-cores:', '-'*20
+    res = modelM(x, a, maxCores=maxCores) # much faster (multi processor)
 
     chi2 = 0.0
     for k in range(len(res)):
@@ -1666,7 +1691,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     # #############################
 
     # -- data density as a function of MJD:
-    if False:
+    if plot and False:
         plt.figure(9)
         plt.clf()
         plt.title('data density')
@@ -1727,8 +1752,6 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     fits_data['Lum'] = iLum(fits_data['PHASE'])
     fits_data['logg'] = ilogg_m(fits_data['PHASE'])
 
-    figures = []
-
     ####### FIRST plot: Vpuls, Diam and Teff ###########
     colorMap = 'jet'
     colorModel = '0.5'
@@ -1754,7 +1777,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
 
         return uni+1
 
-    if plot is True:
+    if plot:
         fignum  = 10
     elif isinstance(plot, int):
         fignum = plot
@@ -1762,21 +1785,23 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         print '!!!ERROR: plot=True or integer value (figure number)'
         return
 
-    if test1plot:
-        #figures.append(plt.figure(fignum, figsize=(12,9)))
-        figures.append(plt.figure(fignum, figsize=(12,7)))
+    if plot:
+        if test1plot:
+            figures.append(plt.figure(fignum, figsize=(12,7)))
 
-        plt.clf()
-        plt.subplots_adjust(left=0.06, top=0.95, bottom=0.06,
-                            right=0.98, hspace=0.02, wspace=0.17)
-    else:
-        figures.append(plt.figure(fignum, figsize=(6,9.5)))
-        plt.clf()
-        plt.subplots_adjust(left=0.15, top=0.95, bottom=0.07,
-                           right=0.95, hspace=0.01)
+            plt.clf()
+            plt.subplots_adjust(left=0.06, top=0.95, bottom=0.06,
+                                right=0.98, hspace=0.02, wspace=0.17)
+        else:
+            figures.append(plt.figure(fignum, figsize=(6,9.5)))
+            plt.clf()
+            plt.subplots_adjust(left=0.15, top=0.95, bottom=0.07,
+                               right=0.95, hspace=0.01)
     nplot = 3
-    if title is None:
+    if starName is None:
         title = ''
+    else:
+        title = starName
     if a['d_kpc']>=2:
         title += ' (P~%6.3fd) p=%5.3f d=%5.1fkpc'%(a['PERIOD'], a['P-FACTOR'], a['d_kpc'])
     else:
@@ -1795,21 +1820,22 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     else:
         title += '; '+title_excess
 
-    if title[0] != ' ':
+    if plot and title[0] != ' ':
         plt.suptitle(title, fontsize=12, fontweight='bold')
 
     # ------ radial velocity -------
-    if test1plot:
-        # ax_e = plt.axes([0.06, 0.50, 0.43, 0.08]) # residuals
-        # ax = plt.axes([0.06, 0.58, 0.43, 0.35]) # model and data
-        win_ym, win_ys, win_yo, win_e = 0.95, 0.35, 0.01, 0.
-        #ax_e = plt.axes([0.06, win_ym-(1.+win_e)*win_ys, 0.43, win_ys*win_e]) # residuals
-        ax = plt.axes([0.06, win_ym-win_ys, 0.43, win_ys]) # model and data
-    else:
-        ax = plt.subplot(nplot, 1, 1)
+    if plot:
+        if test1plot:
+            # ax_e = plt.axes([0.06, 0.50, 0.43, 0.08]) # residuals
+            # ax = plt.axes([0.06, 0.58, 0.43, 0.35]) # model and data
+            win_ym, win_ys, win_yo, win_e = 0.95, 0.35, 0.01, 0.
+            #ax_e = plt.axes([0.06, win_ym-(1.+win_e)*win_ys, 0.43, win_ys*win_e]) # residuals
+            ax = plt.axes([0.06, win_ym-win_ys, 0.43, win_ys]) # model and data
+        else:
+            ax = plt.subplot(nplot, 1, 1)
 
-    plt.hlines(Vgamma, -1,2,color=colors[-1], linestyle='dotted',
-                  linewidth=1, label='V$_\gamma$=%4.2f km/s'%Vgamma)
+        plt.hlines(Vgamma, -1,2,color=colors[-1], linestyle='dotted',
+                      linewidth=1, label='V$_\gamma$=%4.2f km/s'%Vgamma)
 
     y_min, y_max = Vgamma, Vgamma
     MJDoutliers = []
@@ -1820,8 +1846,9 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         y_max = max(y_max, np.max([data[k]+edata[k] for k in w[0]]))
         chi2 = np.mean([((data[k]-res[k])/edata[k])**2 for k in w[0]])
         # -- Vpuls model
-        plt.plot(X, iVpuls(X)+Vgamma, color=(0.1,0.5,0.25), linewidth=2,
-                    label='Vpuls + V$_\gamma$', alpha=0.5, linestyle='dashed')
+        if plot:
+            plt.plot(X, iVpuls(X)+Vgamma, color=(0.1,0.5,0.25), linewidth=2,
+                        label='Vpuls + V$_\gamma$', alpha=0.5, linestyle='dashed')
         y_min = min(y_min, iVpuls(X).min()+Vgamma)
         y_max = max(y_max, iVpuls(X).max()+Vgamma)
 
@@ -1834,10 +1861,11 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             _w = np.where(orig[w]==s)
             ### data
             for df in [-1,0,1]:
-                plt.errorbar(phi[w][_w]+df, [data[k] for k in w[0][_w]],
-                    yerr=[edata[k] for k in w[0][_w]], linestyle='none',
-                    marker='.', alpha=0.5, label=s if df==0 else '',
-                    markersize=3, color=color)
+                if plot:
+                    plt.errorbar(phi[w][_w]+df, [data[k] for k in w[0][_w]],
+                        yerr=[edata[k] for k in w[0][_w]], linestyle='none',
+                        marker='.', alpha=0.5, label=s if df==0 else '',
+                        markersize=3, color=color)
         allChi2.append(('VPULS', chi2))
 
         # -- find outliers:
@@ -1847,26 +1875,34 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             print 'outliers in vpuls'
             print [x[w[0][i]][0] for i in w__[0]]
             MJDoutliers.extend([x[w[0][i]][0] for i in w__[0]])
-        plt.text(1.05, y_max,
-                     r'Vpuls $\chi^2=$%4.2f'%chi2, va='top', ha='right',
-                     size=10)
-        plt.plot(X, iVpuls(X), '-', label='Vpuls model', linewidth=3, color='0.5')
-        plt.plot(X, 0*iVpuls(X), '-', linewidth=2, color='0.5', linestyle='dotted')
+        if plot:
+            plt.text(1.05, y_max,
+                         r'Vpuls $\chi^2=$%4.2f'%chi2, va='top', ha='right',
+                         size=10)
+            plt.plot(X, iVpuls(X), '-', label='Vpuls model', linewidth=3, color='0.5')
+            plt.plot(X, 0*iVpuls(X), '-', linewidth=2, color='0.5', linestyle='dotted')
         y_min = min(y_min, iVpuls(X).min())
         y_max = max(y_max, iVpuls(X).max())
         # -- plot nodes
-        if not uncer is None:
-            plt.errorbar(xp,yp-Vgamma, fmt='.k', markersize=9,
+        if plot and not uncer is None:
+            plt.errorbar(xpV,ypV-Vgamma, fmt='.k', markersize=9,
                             xerr=exp, yerr=eyp)
-        if not useFourierVpuls and False:
-            plt.plot(xp, yp-Vgamma, 'pw', markersize=9,
-                        label='Spline Nodes - V$\gamma$', alpha=0.8)
-            if not xv_pow is None:
-                color=(0.8,0.4,0.0)
-                plt.plot(xv_pow, Vgamma+0*xv_pow, '|', color=color,
-                         linewidth=2, markersize=12, label='Spline comb')
-                plt.plot(xv_pow-1, Vgamma+0*xv_pow, '|', color=color,
-                          linewidth=2, markersize=12)
+        if not useFourierVpuls:
+            j = 0
+            for i in range(len(xpV)):
+                if xpV[i]>=0 and xpV[i]<1:
+                    fits_model['VPULS SPLINE NODE PHI'+str(j)] = xpV[i]
+                    fits_model['VPULS SPLINE NODE VAL'+str(j)] = ypV[i]
+                    j+=1
+            if plot and False:
+                plt.plot(xpV, ypV-Vgamma, 'pw', markersize=9,
+                            label='Spline Nodes - V$\gamma$', alpha=0.8)
+                if not xv_pow is None:
+                    color=(0.8,0.4,0.0)
+                    plt.plot(xv_pow, Vgamma+0*xv_pow, '|', color=color,
+                             linewidth=2, markersize=12, label='Spline comb')
+                    plt.plot(xv_pow-1, Vgamma+0*xv_pow, '|', color=color,
+                              linewidth=2, markersize=12)
 
     w = np.where(types=='vrad')
     if len(w[0])>0:
@@ -1876,30 +1912,38 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         chi2 = np.mean([((data[k]-res[k])/edata[k])**2 for k in w[0]])
         allChi2.append(('VRAD', chi2))
         # -- Vrad model
-        plt.plot(X, iVrad(X)+Vgamma, color=(0.1,0.5,0.25), linewidth=2,
-                    label='model, ptp=%5.2fkm/s'%np.ptp(iVrad(X)), alpha=0.5)
+        if plot:
+            plt.plot(X, iVrad(X)+Vgamma, color=(0.1,0.5,0.25), linewidth=2,
+                        label='model, ptp=%5.2fkm/s'%np.ptp(iVrad(X)), alpha=0.5)
         if not useFourierVpuls:
-            if any(['VRAD 'in k for k in a.keys()]):
-                plt.plot(xp, yp, 'p', markersize=5, color=(0.5,0.25,0.1),
-                        label='Spline Nodes', alpha=0.8)
-            else:
-                plt.plot(xp, (yp-Vgamma)/pfactor+Vgamma, 'p', markersize=5, color=(0.5,0.25,0.1),
-                        label='Spline Nodes', alpha=0.8)
+            j = 0
+            for i in range(len(xpV)):
+                if xpV[i]>=0 and xpV[i]<1:
+                    fits_model['VRAD SPLINE NODE PHI'+str(j)] = xpV[i]
+                    fits_model['VRAD SPLINE NODE VAL'+str(j)] = ypV[i]
+                    j+=1
+            if plot:
+                if any(['VRAD 'in k for k in a.keys()]):
+                    plt.plot(xpV, ypV, 'p', markersize=5, color=(0.5,0.25,0.1),
+                            label='Spline Nodes', alpha=0.8)
+                else:
+                    plt.plot(xpV, (ypV-Vgamma)/pfactor+Vgamma, 'p', markersize=5, color=(0.5,0.25,0.1),
+                            label='Spline Nodes', alpha=0.8)
 
-            if not xv_pow is None:
-                color=(0.8,0.4,0.)
-                plt.plot(xv_pow, Vgamma+0*xv_pow, '|', color=color,
-                         linewidth=2, markersize=16, label='Spline comb')
+                if not xv_pow is None:
+                    color=(0.8,0.4,0.)
+                    plt.plot(xv_pow, Vgamma+0*xv_pow, '|', color=color,
+                             linewidth=2, markersize=16, label='Spline comb')
 
-                plt.plot(xv_pow-1, Vgamma+0*xv_pow, '|', color=color,
-                          linewidth=2, markersize=16)
-                for i in x0_i:
-                    if xv_pow[i]<1.1:
-                        plt.text(xv_pow[i], Vgamma, '%d'%i, color=color,
-                                alpha=0.5, size=8)
-                    if xv_pow[i]>0.9:
-                        plt.text(xv_pow[i]-1, Vgamma, '%d'%i, color=color,
-                                alpha=0.5, size=8)
+                    plt.plot(xv_pow-1, Vgamma+0*xv_pow, '|', color=color,
+                              linewidth=2, markersize=16)
+                    for i in x0_i:
+                        if xv_pow[i]<1.1:
+                            plt.text(xv_pow[i], Vgamma, '%d'%i, color=color,
+                                    alpha=0.5, size=8)
+                        if xv_pow[i]>0.9:
+                            plt.text(xv_pow[i]-1, Vgamma, '%d'%i, color=color,
+                                    alpha=0.5, size=8)
 
         tmp = list(set(orig[w]))
         for i,s in enumerate(np.sort(tmp)):
@@ -1909,11 +1953,12 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             _w = np.where(orig[w]==s)
             for df in [-1,0,1]:
                 ### data
-                plt.errorbar(phi[w][_w]+df, [data[k] for k in w[0][_w]],
-                    yerr=[edata[k] for k in w[0][_w]], linestyle='none',
-                    marker='.', label=s if df==0 else '',
-                    markersize=3, color=color,
-                    alpha=0.2 if any([edata[k]<0 for k in w[0][_w]]) else 1)
+                if plot:
+                    plt.errorbar(phi[w][_w]+df, [data[k] for k in w[0][_w]],
+                        yerr=[edata[k] for k in w[0][_w]], linestyle='none',
+                        marker='.', label=s if df==0 else '',
+                        markersize=3, color=color,
+                        alpha=0.2 if any([edata[k]<0 for k in w[0][_w]]) else 1)
                 ### residuals:
                 # ax_e.plot(phi[w][_w]+df, [(data[k]-res[k])/edata[k] for k in w[0][_w]],
                 #     linestyle='none', marker='o', alpha=1, markersize=3,
@@ -1926,23 +1971,18 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             print 'outliers in vrad'
             print [x[w[0][i]][0] for i in w__[0]]
             MJDoutliers.extend([x[w[0][i]][0] for i in w__[0]])
-        plt.text(1.05, y_max+0.10*(y_max-y_min),
-                 r'Vrad $\chi^2=$%4.2f'%chi2, va='top', ha='right', size=10)
+        if plot:
+            plt.text(1.05, y_max+0.10*(y_max-y_min),
+                    r'Vrad $\chi^2=$%4.2f'%chi2, va='top', ha='right', size=10)
+    if plot:
+        plt.legend(loc='upper left', prop={'size':9},
+                   frameon=False, numpoints=1, ncol=2)
+        plt.ylabel('velocity (km/s)')
+        plt.xlim(-0.1,1.1)
+        plt.ylim(y_min-0.05*(y_max-y_min), y_max+0.13*(y_max-y_min))
+        ax.set_xticklabels([])
+        uni = labelPanel(uni)
 
-    plt.legend(loc='upper left', prop={'size':9},
-               frameon=False, numpoints=1, ncol=2)
-    plt.ylabel('velocity (km/s)')
-    plt.xlim(-0.1,1.1)
-    plt.ylim(y_min-0.05*(y_max-y_min), y_max+0.13*(y_max-y_min))
-    ax.set_xticklabels([])
-    uni = labelPanel(uni)
-    # ax_e.set_xlim(-0.1, 1.1)
-    # ax_e.set_ylim(-5, 5)
-    # ax_e.yaxis.set_ticks([-3,0,3])
-    # ax_e.set_ylabel('n$\sigma$')
-    # ax_e.xaxis.set_ticklabels([])
-    # ax_e.hlines(0, -0.2, 1.2)
-    # ax_e.hlines([-3,3], -0.2, 1.2, linestyle='dashed')
     if plot and False:
         # -- persistent L/R and L/Vpuls diagrams
         plt.figure(0, figsize=(8,8))
@@ -2005,22 +2045,26 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     plt.figure(fignum)
 
     # ----- diameters ------
-    if test1plot:
-        # ax2_e = plt.axes([0.06, 0.06, 0.43, 0.08])
-        # ax2 = plt.axes([0.06, 0.14, 0.43, 0.35])
-        #ax2_e = plt.axes([0.06, win_ym-(2.5+2*win_e)*win_ys-2*win_yo, 0.43, win_ys*win_e]) # residuals
-        ax2 = plt.axes([0.06, win_ym-(2.5+win_e)*win_ys-2*win_yo, 0.43, win_ys]) # model and data
-    else:
-        ax2 = plt.subplot(nplot, 1, 2, sharex=ax)
+    if plot:
+        if test1plot:
+            # ax2_e = plt.axes([0.06, 0.06, 0.43, 0.08])
+            # ax2 = plt.axes([0.06, 0.14, 0.43, 0.35])
+            #ax2_e = plt.axes([0.06, win_ym-(2.5+2*win_e)*win_ys-2*win_yo, 0.43, win_ys*win_e]) # residuals
+            ax2 = plt.axes([0.06, win_ym-(2.5+win_e)*win_ys-2*win_yo, 0.43, win_ys]) # model and data
+        else:
+            ax2 = plt.subplot(nplot, 1, 2, sharex=ax)
 
     y_min = iDiam(X).min()
     y_max = iDiam(X).max()
     if iDiam(X).mean()>1.:
-        lab = 'model ptp=%5.2fmas'%np.ptp(iDiam(X))
+        lab = 'model ptp=%5.2fmas (%3.1f%%)'%(np.ptp(iDiam(X)),
+                                        100*np.ptp(iDiam(X))/np.mean(iDiam(X)))
     else:
-        lab = 'model ptp=%5.2fuas'%np.ptp(1000*iDiam(X))
-    plt.plot(X, iDiam(X), '-', label=lab,
-            linewidth=3, color=colorModel, alpha=0.5)
+        lab = 'model ptp=%5.2fuas (%3.1f%%)'%(np.ptp(1000*iDiam(X)),
+                                        100*np.ptp(iDiam(X))/np.mean(iDiam(X)))
+    if plot:
+        plt.plot(X, iDiam(X), '-', label=lab,
+                linewidth=3, color=colorModel, alpha=0.5)
 
     # -- color code for the baseline (in m):
     baselineC = lambda x: plt.cm.get_cmap('gist_stern_r')(x/330.)
@@ -2044,40 +2088,36 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                     # -- model: to show effect of K excess
                     if not np.isscalar(x[i][2]) and np.abs(x[i][2][0]-2.2)<0.3:
                         plotK = True
-                        ax2.errorbar(phi[i]+df, x[i][-2], yerr=x[i][-1],
-                                fmt='p', color=baselineC(x[i][2][1]),
-                                alpha=0.7, markersize=4,
-                                label=r'$\theta$Ross$_K$ $\chi^2$=%3.1f'%chi2 if _label1 else '')
-                        # ax2_e.plot(phi[i]+df, (x[i][-2]-res[i])/x[i][-1],
-                        #         'p', color=baselineC(x[i][2][1]),
-                        #         alpha=0.7, markersize=4)
+                        if plot:
+                            ax2.errorbar(phi[i]+df, x[i][-2], yerr=x[i][-1],
+                                    fmt='p', color=baselineC(x[i][2][1]),
+                                    alpha=0.7, markersize=4,
+                                    label=r'$\theta$Ross$_K$ $\chi^2$=%3.1f'%chi2 if _label1 else '')
                         if _label1:
                             allChi2.append(('Ross_K', chi2))
                         _label1 = False
                     elif not np.isscalar(x[i][2]) and np.abs(x[i][2][0]-1.65)<0.3:
                         plotH = True
-                        ax2.errorbar(phi[i]+df, x[i][-2], yerr=x[i][-1],
-                                fmt='d', color=baselineC(x[i][2][1]),
-                                alpha=0.7, markersize=4,
-                                label=r'$\theta$Ross$_H$ $\chi^2$=%3.1f'%chi2 if _label1 else '')
-                        # ax2_e.plot(phi[i]+df, (x[i][-2]-res[i])/x[i][-1],
-                        #         'd', color=baselineC(x[i][2][1]),
-                        #         alpha=0.7, markersize=4)
+                        if plot:
+                            ax2.errorbar(phi[i]+df, x[i][-2], yerr=x[i][-1],
+                                    fmt='d', color=baselineC(x[i][2][1]),
+                                    alpha=0.7, markersize=4,
+                                    label=r'$\theta$Ross$_H$ $\chi^2$=%3.1f'%chi2 if _label1 else '')
                         if _label1:
                             allChi2.append(('Ross_H', chi2))
                         _label1 = False
                     else:
-                        ax2.errorbar(phi[i]+df, x[i][-2], yerr=x[i][-1],
-                                fmt='o', color='0.5',
-                                alpha=0.7, markersize=4,
-                                label=r'$\theta$Ross $\chi^2$=%3.1f'%chi2 if _label2 else '')
-                        # ax2_e.plot(phi[i]+df, (x[i][-2]-res[i])/x[i][-1],
-                        #         'o', color='0.5', alpha=0.7, markersize=4)
+                        if plot:
+                            ax2.errorbar(phi[i]+df, x[i][-2], yerr=x[i][-1],
+                                    fmt='o', color='0.5',
+                                    alpha=0.7, markersize=4,
+                                    label=r'$\theta$Ross $\chi^2$=%3.1f'%chi2 if _label2 else '')
                         if _label2:
                             allChi2.append(('LD', chi2))
                         _label2 = False
             else:
-                ax2.errorbar(phi[w]+df, [data[k] for k in w[0]],
+                if plot:
+                    ax2.errorbar(phi[w]+df, [data[k] for k in w[0]],
                                 yerr=[edata[k] for k in w[0]],
                                 fmt='.', color=(0.1, 0.3, 0.8), alpha=0.6,
                                 label=r'$\theta$Ross $\chi^2$=%3.1f'%chi2 if _label2 else '',
@@ -2103,8 +2143,6 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                 chi2 = np.mean([((data[k]-res[k])/edata[k])**2 for k in w__[0][wi]])
             else:
                 chi2 = 0.0
-            #chi2 = np.mean([((data[k]-res[k])/edata[k])**2 for k in w__[0]])
-            #print 'UDdiam',f, 'chi2:', chi2
             for df in [0,-1,1]:
                 if k_excess!=0 and np.abs(float(f)-2.2)<0.4:
                     plotK = True
@@ -2124,22 +2162,19 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                             print f, 'UD_LD=', UD_LD
                         # -- baseline given and in the K band:
                         if not np.isscalar(x[i][2]) and np.abs(x[i][2][0]-2.2)<0.4:
-                            ax2.errorbar(phi[i]+df, x[i][-2]/UD_LD, yerr=x[i][-1],
-                                    fmt='s', color=baselineC(x[i][2][1]),
-                                    alpha=0.7, markersize=4,
-                                    label=r'UD$_K$->$\theta$Ross $\chi^2=%3.1f$'%chi2 if _label1 else '')
-                            # ax2_e.plot(phi[i]+df, (x[i][-2]-res[i])/x[i][-1], 's',
-                            #         color=baselineC(x[i][2][1]),
-                            #         alpha=0.7, markersize=4,)
+                            if plot:
+                                ax2.errorbar(phi[i]+df, x[i][-2]/UD_LD, yerr=x[i][-1],
+                                        fmt='s', color=baselineC(x[i][2][1]),
+                                        alpha=0.7, markersize=4,
+                                        label=r'UD$_K$->$\theta$Ross $\chi^2=%3.1f$'%chi2 if _label1 else '')
                             if _label1:
                                 allChi2.append(('UD_K', chi2))
                             _label1 = False
                         else:
-                            ax2.errorbar(phi[i]+df, x[i][-2]/UD_LD, yerr=x[i][-1],
-                                    fmt='s', color='0.5', alpha=0.7, markersize=4,
-                                    label=r'UD$_K$->$\theta$Ross $\chi^2=%3.1f$'%chi2 if _label2 else '')
-                            # ax2_e.plot(phi[i]+df, (x[i][-2]-res[i])/x[i][-1], 's',
-                            #         color='0.5', alpha=0.7, markersize=4,)
+                            if plot:
+                                ax2.errorbar(phi[i]+df, x[i][-2]/UD_LD, yerr=x[i][-1],
+                                        fmt='s', color='0.5', alpha=0.7, markersize=4,
+                                        label=r'UD$_K$->$\theta$Ross $\chi^2=%3.1f$'%chi2 if _label2 else '')
                             if _label2:
                                 allChi2.append(('UD_K', chi2))
                             _label2 = False
@@ -2162,23 +2197,22 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
 
                         # -- baseline given and in the H band:
                         if not np.isscalar(x[i][2]) and np.abs(x[i][2][0]-1.65)<0.3:
-                            ax2.errorbar(phi[i]+df, x[i][-2]/UD_LD, yerr=x[i][-1],
-                                    fmt='d' if x[i][-1]>0 else 'x',
-                                    color=baselineC(x[i][2][1]),
-                                    alpha=0.7, markersize=4,
-                                    label=r'UD$_H$->$\theta$Ross $\chi^2=%3.1f$'%chi2 if _label1 else '')
-                            # ax2_e.plot(phi[i]+df, (x[i][-2]-res[i])/x[i][-1], 'd',
-                            #         color=baselineC(x[i][2][1]),
-                            #         alpha=0.7, markersize=4,)
+                            if plot:
+                                ax2.errorbar(phi[i]+df, x[i][-2]/UD_LD, yerr=x[i][-1],
+                                            fmt='d' if x[i][-1]>0 else 'x',
+                                            color=baselineC(x[i][2][1]),
+                                            alpha=0.7, markersize=4,
+                                            label=r'UD$_H$->$\theta$Ross $\chi^2=%3.1f$'%chi2 if _label1 else '')
                             if _label1:
                                 #print '  |%-30s:'%('UD_H'), chi2
                                 allChi2.append(('UD_H', chi2))
                             _label1 = False
                         else:
-                            ax2.errorbar(phi[i]+df, x[i][-2]/UD_LD, yerr=x[i][-1],
-                                    fmt='d' if x[i][-1]>0 else 'x',
-                                    color='0.5', alpha=0.7, markersize=4,
-                                    label=r'UD$_H$->$\theta$Ross $\chi^2=%3.1f$'%chi2 if _label2 else '')
+                            if plot:
+                                ax2.errorbar(phi[i]+df, x[i][-2]/UD_LD, yerr=x[i][-1],
+                                            fmt='d' if x[i][-1]>0 else 'x',
+                                            color='0.5', alpha=0.7, markersize=4,
+                                            label=r'UD$_H$->$\theta$Ross $\chi^2=%3.1f$'%chi2 if _label2 else '')
                             if _label2:
                                 #print '  |%-30s:'%('UD_H'), chi2
                                 allChi2.append(('UD_H', chi2))
@@ -2203,21 +2237,19 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                         print f, 'UD -> Ross', UD_LD.mean()
                     # -- show data
                     wi = np.where([edata[k]>0 for k in w__[0]])
-                    if len(wi[0])>0:
+                    if plot and len(wi[0])>0:
                         ax2.errorbar(phi[w__]+df, np.array([data[k] for k in w__[0]])/UD_LD,
                                 yerr=np.array([edata[k] for k in w__[0]])/UD_LD,
                                 fmt='.', color=colors[i%len(colors)],
                                 markersize=4, alpha=0.7,
                                 label=r'UD$_{%s\mu m}$->$\theta$Ross $\chi^2$=%3.1f'%(f, chi2) if df==0 else '')
                     wi = np.where([edata[k]<=0 for k in w__[0]])
-                    if len(wi[0])>0:
+                    if plot and len(wi[0])>0:
                         ax2.errorbar(phi[w__]+df, np.array([data[k] for k in w__[0]])/UD_LD,
                                 yerr=np.array([edata[k] for k in w__[0]])/UD_LD,
                                 fmt='x', color=colors[i%len(colors)],
                                 markersize=4, alpha=0.7,
                                 label=r'UD$_{%s\mu m}$->$\theta$Ross [IGNORED]'%(f) if df==0 else '')
-
-
                     if _label1:
                         #print '  |%-30s:'%('UD %sum'%(f)), chi2
                         allChi2.append(('UD %sum'%(f), chi2))
@@ -2227,51 +2259,46 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     if k_excess!=0 and plotK:
         for b in [100. , 200. , 300.]:
             bias = np.array([diamBiasK(d, b, 10**(k_excess/2.5)-1) for d in iDiam(X)])
-            ax2.plot(X, iDiam(X)*bias, '-', linewidth=2, color=baselineC(b),
-                     alpha=0.8, linestyle='dashed')
-            if np.interp(0.5, X, iDiam(X)*bias)<y_max+ 0.05*(y_max-y_min):
-                ax2.text(0.5, np.interp(0.5, X, iDiam(X)*bias), 'B=%3.0fm (K)'%b,
-                         color=baselineC(b), alpha=0.9, size=10, va='center', ha='left')
+            if plot:
+                ax2.plot(X, iDiam(X)*bias, '-', linewidth=2, color=baselineC(b),
+                         alpha=0.8, linestyle='dashed')
+                if np.interp(0.5, X, iDiam(X)*bias)<y_max+ 0.05*(y_max-y_min):
+                    ax2.text(0.5, np.interp(0.5, X, iDiam(X)*bias), 'B=%3.0fm (K)'%b,
+                             color=baselineC(b), alpha=0.9, size=10, va='center', ha='left')
             fits_data['diamK %3.0fm'%b] = iDiam(fits_data['PHASE'])*\
                         np.interp(fits_data['PHASE'], X, bias)
     # -- plot H excess effects:
     if h_excess!=0 and plotH and False:
         for b in [100. , 200. , 300.]:
             bias = np.array([diamBiasK(d, b, 10**(h_excess/2.5)-1) for d in iDiam(X)])
-            ax2.plot(X, iDiam(X)*bias, '-', linewidth=2, color=baselineC(b),
-                     alpha=0.8, linestyle='dotted')
-            if np.interp(0.5, X, iDiam(X)*bias)<y_max+ 0.05*(y_max-y_min):
-                ax2.text(0.5, np.interp(0.5, X, iDiam(X)*bias), 'B=%3.0fm (H)'%b,
-                         color=baselineC(b), alpha=0.9, size=10, va='center', ha='right')
+            if plot:
+                ax2.plot(X, iDiam(X)*bias, '-', linewidth=2, color=baselineC(b),
+                         alpha=0.8, linestyle='dotted')
+                if np.interp(0.5, X, iDiam(X)*bias)<y_max+ 0.05*(y_max-y_min):
+                    ax2.text(0.5, np.interp(0.5, X, iDiam(X)*bias), 'B=%3.0fm (H)'%b,
+                             color=baselineC(b), alpha=0.9, size=10, va='center', ha='right')
             fits_data['diamH %3.0fm'%b] = iDiam(fits_data['PHASE'])*\
                         np.interp(fits_data['PHASE'], X, bias)
 
-    if not uncer is None:
+    if plot and not uncer is None:
         ax2.plot(0,a['DIAM0'], 'pw', markersize=10, label='Ross(t=0)')
-        #ax2.errorbar(0,a['DIAM0'], yerr=uncer['DIAM0'], color='k')
 
-    ax2.legend(loc='lower center', prop={'size':9}, numpoints=1,
-               frameon=False, ncol=1)
+    if plot:
+        ax2.legend(loc='lower center', prop={'size':9}, numpoints=1,
+                   frameon=False, ncol=1)
 
-    ax2.set_xlim(-0.1,1.1)
-    ax2.set_ylim(y_min - 0.05*(y_max-y_min),
-             y_max + 0.05*(y_max-y_min))
-    uni = labelPanel(uni)
+        ax2.set_xlim(-0.1,1.1)
+        ax2.set_ylim(y_min - 0.05*(y_max-y_min),
+                 y_max + 0.05*(y_max-y_min))
+        uni = labelPanel(uni)
 
-    if y_max>0.1:
-        ax2.set_ylabel('Ang. diam. (mas)')
-    else:
-        ax2.set_ylabel('Ang. diam. (uas)')
-        yti = ax2.get_yticks()
-        ax2.set_yticklabels([str(__yti*1000) for __yti in yti])
+        if y_max>0.1:
+            ax2.set_ylabel('Ang. diam. (mas)')
+        else:
+            ax2.set_ylabel('Ang. diam. (uas)')
+            yti = ax2.get_yticks()
+            ax2.set_yticklabels([str(__yti*1000) for __yti in yti])
 
-    # ax2_e.set_xlim(-0.1,1.1)
-    # ax2_e.set_ylim(-5.5,5.5)
-    # ax2_e.hlines(0, -0.2, 1.2)
-    # ax2_e.hlines([-3,3], -0.2, 1.2, linestyle='dashed')
-    # ax2_e.yaxis.set_ticks([-3,0,3])
-    #ax2_e.set_xlabel('pulsation phase')
-    #ax2_e.set_ylabel('n$\sigma$')
 
     next_plot = 3
 
@@ -2316,14 +2343,16 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         __op = 1
     subplot = 3+showLum
 
-    if test1plot:
-        # -- Teff on the top right
-        #ax3 = plt.subplot((len(list_filt)+len(list_color)+2)/__np+__op, 2, 2)
-        # -- Teff on the bottom left:
-        ax3 = plt.axes([0.06, win_ym-(1.5+win_e)*win_ys-win_yo, 0.43, win_ys*0.5])
+    if plot:
+        if test1plot:
+            # -- Teff on the top right
+            #ax3 = plt.subplot((len(list_filt)+len(list_color)+2)/__np+__op, 2, 2)
+            # -- Teff on the bottom left:
+            ax3 = plt.axes([0.06, win_ym-(1.5+win_e)*win_ys-win_yo, 0.43, win_ys*0.5])
 
-    else:
-        ax3 = plt.subplot(nplot, 1, next_plot, sharex=ax)
+        else:
+            ax3 = plt.subplot(nplot, 1, next_plot, sharex=ax)
+
     # -- from table 15.7 of Astrophysical Quantities
     sp = ['F0','F1','F2','F3','F4','F5','F6','F7','F8',
           'F9','G0','G2','G4','G6',
@@ -2337,7 +2366,7 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     if len(w[0])>0:
         Tmax = max(Tmax, max([data[k]+edata[k] for k in w[0]]))
         Tmin = min(Tmin, min([data[k]-edata[k] for k in w[0]]))
-    if False:
+    if False and plot:
         # -- spectral types lines:
         for k in range(len(sp)):
             if sp_t[k]<=Tmax+150 and \
@@ -2349,33 +2378,38 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                 plt.text(1.0, sp_t[k]*1e-3, sp[k], ha='center', va='center',
                             fontsize=10, color='0.3', weight='semibold',
                             variant='small-caps')
-    # -- Teff model from SPIPS:
-    plt.plot(X, iTeff(X)*1e-3, '-', label='model, ptp=%4.0fK'%(np.ptp(iTeff(X))),
-                linewidth=2, alpha=0.5, color=(0.1,0.5,0.25))
+    if plot:
+        # -- Teff model from SPIPS:
+        plt.plot(X, iTeff(X)*1e-3, '-', label='model, ptp=%4.0fK'%(np.ptp(iTeff(X))),
+                    linewidth=2, alpha=0.5, color=(0.1,0.5,0.25))
     # -- plot nodes:
-    if not uncer is None:
-        plt.errorbar(xpT,ypT*1e-3, xerr=expT, yerr=eypT,
-                        fmt='.k', markersize=5)
     if useSplineTeff:
-        plt.plot(xpT,ypT*1e-3, 'p', markersize=5,
-                 label='Spline Nodes', color=(0.5,0.25,0.1))
-        #if nteff%2==0:
-        #   plt.plot(phi_intern, Teff/1000., '-', color=(0.5,0.2,0),
-        #            linestyle='dashed', label='Spline')
-        if not xt_pow is None:
-            color=(0.8,0.4,0.0)
-            Tmean = iTeff(np.linspace(0,1,100)).mean()*1e-3
-            plt.plot(xt_pow, Tmean+0*xt_pow, '|', color=color,
-                    linewidth=2, alpha=0.8, markersize=12, label='Spline comb')
-            plt.plot(xt_pow-1, Tmean+0*xt_pow, '|', color=color,
-                    linewidth=2, alpha=0.8, markersize=12)
-            for i in xt_i:
-                if xt_pow[i]<1.1:
-                    plt.text(xt_pow[i], Tmean, '%d'%i, color=color,
-                            alpha=0.5, size=8)
-                if xt_pow[i]>0.9:
-                    plt.text(xt_pow[i]-1, Tmean, '%d'%i, color=color,
-                            alpha=0.5, size=8)
+        j = 0
+        for i in range(len(xpT)):
+            if xpT[i]>=0 and xpT[i]<1:
+                fits_model['TEFF SPLINE NODE PHI'+str(j)] = xpT[i]
+                fits_model['TEFF SPLINE NODE VAL'+str(j)] = ypT[i]
+                j+=1
+        if plot:
+            plt.plot(xpT,ypT*1e-3, 'p', markersize=5,
+                     label='Spline Nodes', color=(0.5,0.25,0.1))
+            #if nteff%2==0:
+            #   plt.plot(phi_intern, Teff/1000., '-', color=(0.5,0.2,0),
+            #            linestyle='dashed', label='Spline')
+            if not xt_pow is None:
+                color=(0.8,0.4,0.0)
+                Tmean = iTeff(np.linspace(0,1,100)).mean()*1e-3
+                plt.plot(xt_pow, Tmean+0*xt_pow, '|', color=color,
+                        linewidth=2, alpha=0.8, markersize=12, label='Spline comb')
+                plt.plot(xt_pow-1, Tmean+0*xt_pow, '|', color=color,
+                        linewidth=2, alpha=0.8, markersize=12)
+                for i in xt_i:
+                    if xt_pow[i]<1.1:
+                        plt.text(xt_pow[i], Tmean, '%d'%i, color=color,
+                                alpha=0.5, size=8)
+                    if xt_pow[i]>0.9:
+                        plt.text(xt_pow[i]-1, Tmean, '%d'%i, color=color,
+                                alpha=0.5, size=8)
 
     chi2, nchi2 = 0.0, 0
     for i,ori in enumerate(set(orig[np.where(types=='teff')])):
@@ -2387,32 +2421,34 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             nchi2 += len( w[0][wi])
             df=0
             #print '#'*6, '"'+ori+'"', chi2, w[0][wi]
-            for df in [-1,0,1]:
-                plt.errorbar(phi[w][wi]+df-teff_phase_offset, [data[k]*1e-3 for k in w[0][wi]],
-                             yerr=[edata[k]*1e-3 for k in w[0][wi]],
-                            fmt='.', markersize=5, color=colors[i%len(colors)],
-                            label='%s'%(ori) if df==0 else '')
+            if plot:
+                for df in [-1,0,1]:
+                    plt.errorbar(phi[w][wi]+df-teff_phase_offset, [data[k]*1e-3 for k in w[0][wi]],
+                                 yerr=[edata[k]*1e-3 for k in w[0][wi]],
+                                fmt='.', markersize=5, color=colors[i%len(colors)],
+                                label='%s'%(ori) if df==0 else '')
         wi = np.where([edata[k]<=0 for k in w[0]])
         if len(wi[0])>0:
             df=0
-            plt.plot(phi[w][wi]+df-teff_phase_offset, [data[k]*1e-3 for k in w[0][wi]],
-                    'x', markersize=5, label=ori+' ignored' if df==0 else '', color=colors[i%len(colors)])
+            if plot:
+                plt.plot(phi[w][wi]+df-teff_phase_offset, [data[k]*1e-3 for k in w[0][wi]],
+                        'x', markersize=5, label=ori+' ignored' if df==0 else '', color=colors[i%len(colors)])
     if nchi2>0:
         allChi2.append(('TEFF', chi2/nchi2))
-
-    plt.ylabel('Teff (1e3K)')
-    plt.xlim(-0.1,1.1)
-    Tmin, Tmax = Tmin-0.10*(Tmax-Tmin), Tmax+0.10*(Tmax-Tmin)
-    plt.ylim(Tmin*1e-3, Tmax*1e-3)
-    plt.legend(loc='upper center', prop={'size':9}, frameon=False, numpoints=1, ncol=2)
-    ax3.set_xticks([0,0.2,0.4,0.6,0.8,1.0])
-    ax3.set_xticklabels([])
-    ax3.tick_params(axis='both', which='major', labelsize=10)
-    ax3.set_yticks(ax3.get_yticks()[1:])
-    uni = labelPanel(uni)
+    if plot:
+        plt.ylabel('Teff (1e3K)')
+        plt.xlim(-0.1,1.1)
+        Tmin, Tmax = Tmin-0.10*(Tmax-Tmin), Tmax+0.10*(Tmax-Tmin)
+        plt.ylim(Tmin*1e-3, Tmax*1e-3)
+        plt.legend(loc='upper center', prop={'size':9}, frameon=False, numpoints=1, ncol=2)
+        ax3.set_xticks([0,0.2,0.4,0.6,0.8,1.0])
+        ax3.set_xticklabels([])
+        ax3.tick_params(axis='both', which='major', labelsize=10)
+        ax3.set_yticks(ax3.get_yticks()[1:])
+        uni = labelPanel(uni)
 
     #### Luminosity ######
-    if showLum:
+    if showLum and plot:
         ax = plt.subplot((len(list_filt)+len(list_color)+showLum)/__np+__op, 4, subplot-1)
         # -- Lum model from SPIPS:
         ax.plot(X, np.log10(iLum(X)), '-', label='model',
@@ -2420,6 +2456,14 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         ax.set_ylabel('log10(L/Lsol) ')
         ax.set_xlim(-0.1,1.1)
         ax.set_ylim(ax.get_ylim()[1], ax.get_ylim()[0])
+
+    # -- surface brightness plots
+    showSurBri = False
+    if showSurBri and plot:
+        plt.figure(23)
+        plt.clf()
+        axsbr = plt.subplot(111)
+        plt.figure(10)
 
     ##################################################
     ###### SECOND plot: photometry ###################
@@ -2432,18 +2476,17 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                 'data med':[], 'data Q1':[], 'data Q3':[], 'err':[], 'sign':[]}
 
     for i, filt in enumerate(list_filt):
-        #print 'FILT!:',filt
-        if test1plot:
-            #ax = plt.subplot((len(list_filt)+len(list_color)+2)/__np+__op, 4, subplot)
-            ax = plt.subplot((len(list_filt)+len(list_color)+showLum)/__np+__op, 4, subplot)
-            if subplot%4==0:
-                subplot += 3
+        if plot:
+            if test1plot:
+                ax = plt.subplot((len(list_filt)+len(list_color)+showLum)/__np+__op, 4, subplot)
+                if subplot%4==0:
+                    subplot += 3
+                else:
+                    subplot += 1
+                ax.set_xticks([0,0.2,0.4,0.6,0.8,1.0])
             else:
-                subplot += 1
-            ax.set_xticks([0,0.2,0.4,0.6,0.8,1.0])
-        else:
-            ax = plt.subplot((len(list_filt)+len(list_color)+1+showLum)/__np+__op, 2, subplot)
-            subplot+=1
+                ax = plt.subplot((len(list_filt)+len(list_color)+1+showLum)/__np+__op, 2, subplot)
+                subplot+=1
 
         w = np.where(np.array(filtname)==filt)[0]
         w = (np.array(w)[phi[w].argsort()], )
@@ -2482,14 +2525,14 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                                          metal=a['METAL']))
                 modlD[-1] = float(modlD[-1]) # something nasty is going on...
 
-
         modl = np.array(modl)
         if splitDTeffects:
             modlT = np.array(modlT)
             modlD = np.array(modlD)
 
         excess['model avg'].append(modl.mean())
-        print '%-20s = %5.3f '%(filt, np.mean(modl)-5*np.log10(a['d_kpc']/0.01)),
+        if verbose:
+            print '%-20s = %5.3f '%(filt, np.mean(modl)-5*np.log10(a['d_kpc']/0.01)),
 
         if __monochromaticAlambda:
             _red = Alambda_Exctinction(wl0, EB_V=a['E(B-V)'], Rv=Rv, Teff=iTeff(xmo))
@@ -2500,7 +2543,8 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             modlT += _red
             modlD += _red
         excess['reddened'].append(modl.mean())
-        print '+ %5.3f'%(np.mean(_red)),
+        if verbose:
+            print '+ %5.3f'%(np.mean(_red)),
 
         irex = 0
         if not f_excess is None:
@@ -2516,10 +2560,11 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         if splitDTeffects:
             modlT -= irex
             modlD -= irex
+        if verbose:
+            print '- %5.3f'%(irex),
+            print '= %6.3f'%(modl.mean()-5*np.log10(a['d_kpc']/0.01))
 
-        print '- %5.3f'%(irex),
         excess['excess'].append(modl.mean())
-        print '= %6.3f'%(modl.mean()-5*np.log10(a['d_kpc']/0.01))
 
         if any(['dMAG ' in k for k in a.keys()]):
             for k in a.keys():
@@ -2534,115 +2579,121 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         excess['data Q3'].append(np.percentile(_tmp, 75))
         excess['sign'].append(np.sign(min([edata[k] for k in w[0]])))
 
+        fits_data['MAG '+filt] = np.interp(fits_data['PHASE'], xmo, np.array(modl))
+        fits_model['AVG_MAG '+filt] = round(modl.mean(), 3)
+        fits_model['ABS_MAG_DERED '+filt] = round(np.mean(modl-_red)-5*np.log10(a['d_kpc']/0.01), 3)
+
         # -- find outliers:
         w__ = np.where(np.array([np.abs(data[k]-res[k]) for k in w[0]]) >
                         3*np.array([edata[k] for k in w[0]]))
 
         if len(w__[0])>0 and showOutliers:
-            print 'outliers in ', filt
-            print [x[w[0][i]][0] for i in w__[0]]
+            if verbose:
+                print 'outliers in ', filt
+                print [x[w[0][i]][0] for i in w__[0]]
             MJDoutliers.extend([x[w[0][i]][0] for i in w__[0]])
 
         tmp = list(set(orig[w])) # each biblio source
         avg = np.mean(modl)
         ptp = np.ptp(modl)
+        if plot:
+            for j,s in enumerate(np.sort(tmp)):
+                # -- for each set of data (each litterature reference)
+                color = plt.cm.get_cmap(colorMap)(j/float(max(len(tmp)-1,1)))
+                color = [0.8*np.sqrt(c) for c in color[:-1]]
+                color.append(1)
+                _w = np.where(orig[w]==s)
+                wi = np.where([not np.isnan(phi[k]) for k in w[0][_w]])
+                if len(wi[0]):
+                    for df in [-1,0,1]:
+                        # -- typical error bar
+                        if df == 0:
+                            meanerr = np.mean([np.abs(edata[k]) for k in w[0][_w]])
+                            plt.errorbar(0.95+0.1*j/float(len(tmp)),
+                                         avg+0.4*ptp-0.2*j*ptp,
+                                        yerr=meanerr, linestyle='none',
+                                        marker='.', alpha=0.5,
+                                        markersize=3, color=color)
+                        # -- data points
+                        wi = np.where([edata[k]>0 for k in w[0][_w]])
+                        if len(wi[0]):
+                            plt.plot(phi[w][_w][wi]+df, [data[k] for k in w[0][_w][wi]],
+                                linestyle='none', markersize=3, color=color,
+                                marker='.', alpha=0.7, label=s if df==0 else '')
+                        wi = np.where([edata[k]<=0 for k in w[0][_w]])
+                        if len(wi[0]):
+                            plt.plot(phi[w][_w][wi]+df, [data[k] for k in w[0][_w][wi]],
+                                linestyle='none', markersize=3, color=color,
+                                marker='x', alpha=0.5, label=s+' ignored' if df==0 else '')
+                # -- case no phase/mjd was given
+                wi = np.where([np.isnan(phi[k]) for k in w[0][_w]])
+                if len(wi[0]):
+                    for k in np.arange(len(data))[w][_w][wi]:
+                        plt.fill_between([-0.5,1.5], data[k]-edata[k]*np.array([1,1]),
+                                    data[k]+edata[k]*np.array([1,1]),
+                                    color='orange' if edata[k]<=0 else color ,
+                                    alpha=0.2, #hatch='x' if edata[k]<0 else None,
+                                    label=s+' ignored' if edata[k]<=0 else '')
+            ### models
+            plt.plot(xmo, modl, color=colorModel, linewidth=2, alpha=0.5,
+                    label='model')
+            if splitDTeffects:
+                plt.plot(xmo, np.array(modlT), color='y', linewidth=1, alpha=0.8,
+                        linestyle='dotted', label=r'$\Delta$R=0')
+                plt.plot(xmo, np.array(modlD), color='g', linewidth=1, alpha=0.8,
+                        linestyle='dotted', label=r'$\Delta$Teff=0')
 
-        for j,s in enumerate(np.sort(tmp)):
-            # -- for each set of data (each litterature reference)
-            color = plt.cm.get_cmap(colorMap)(j/float(max(len(tmp)-1,1)))
-            color = [0.8*np.sqrt(c) for c in color[:-1]]
-            color.append(1)
-            _w = np.where(orig[w]==s)
-            wi = np.where([not np.isnan(phi[k]) for k in w[0][_w]])
-            if len(wi[0]):
-                for df in [-1,0,1]:
-                    # -- typical error bar
-                    if df == 0:
-                        meanerr = np.mean([np.abs(edata[k]) for k in w[0][_w]])
-                        plt.errorbar(0.95+0.1*j/float(len(tmp)),
-                                     avg+0.4*ptp-0.2*j*ptp,
-                                    yerr=meanerr, linestyle='none',
-                                    marker='.', alpha=0.5,
-                                    markersize=3, color=color)
-                    # -- data points
-                    wi = np.where([edata[k]>0 for k in w[0][_w]])
-                    if len(wi[0]):
-                        plt.plot(phi[w][_w][wi]+df, [data[k] for k in w[0][_w][wi]],
-                            linestyle='none', markersize=3, color=color,
-                            marker='.', alpha=0.7, label=s if df==0 else '')
-                    wi = np.where([edata[k]<=0 for k in w[0][_w]])
-                    if len(wi[0]):
-                        plt.plot(phi[w][_w][wi]+df, [data[k] for k in w[0][_w][wi]],
-                            linestyle='none', markersize=3, color=color,
-                            marker='x', alpha=0.5, label=s+' ignored' if df==0 else '')
-            # -- case no phase/mjd was given
-            wi = np.where([np.isnan(phi[k]) for k in w[0][_w]])
-            if len(wi[0]):
-                for k in np.arange(len(data))[w][_w][wi]:
-                    plt.fill_between([-0.5,1.5], data[k]-edata[k]*np.array([1,1]),
-                                data[k]+edata[k]*np.array([1,1]),
-                                color='orange' if edata[k]<=0 else color ,
-                                alpha=0.2, #hatch='x' if edata[k]<0 else None,
-                                label=s+' ignored' if edata[k]<=0 else '')
-        ### models
-        plt.plot(xmo, np.array(modl), color=colorModel, linewidth=2, alpha=0.5,
-                label='model')
-        if splitDTeffects:
-            plt.plot(xmo, np.array(modlT), color='y', linewidth=1, alpha=0.8,
-                    linestyle='dotted', label=r'$\Delta$R=0')
-            plt.plot(xmo, np.array(modlD), color='g', linewidth=1, alpha=0.8,
-                    linestyle='dotted', label=r'$\Delta$Teff=0')
+            if showSurBri:
+                axsbr.plot(iTeff(xmo), modl+5*np.log10(iDiam(xmo))+f_excess(wl0), '-', label='')
+                wi = np.where([not np.isnan(phi[k]) for k in w[0][_w]])
+                axsbr.plot(iTeff(phi[w][_w][wi]), [data[k]+5*np.log10(iDiam(phi[k])) for k in w[0][_w][wi]], 'o')
 
-
-        fits_data['MAG '+filt] = np.interp(fits_data['PHASE'], xmo, np.array(modl))
-
-        # print '%-20s = %5.3f '%(filt,
-        #             np.mean(modl-_red)-5*np.log10(a['d_kpc']/0.01))
-
-        if not f_excess is None and f_excess(wl0)>0.01:
-            plt.plot(xmo, np.array(modl)+f_excess(wl0), color=colorModel,
-                     linewidth=1.5, linestyle='dashed',
-                     label='no CSE', alpha=0.5)
-        else:
-            ### K,H excess
-            if l_excess!=0 and np.abs(wl0-3.5)<=0.5/2:
-                plt.plot(xmo, np.array(modl)+l_excess, color=colorModel,
+            if not f_excess is None and f_excess(wl0)>0.01:
+                plt.plot(xmo, np.array(modl)+f_excess(wl0), color=colorModel,
                          linewidth=1.5, linestyle='dashed',
                          label='no CSE', alpha=0.5)
-            if k_excess!=0 and np.abs(wl0-2.2)<=0.3/2:
-                plt.plot(xmo, np.array(modl)+k_excess, color=colorModel,
-                         linewidth=1.5, linestyle='dashed',
-                         label='no CSE', alpha=0.5)
-            if h_excess!=0 and np.abs(wl0-1.6)<=0.3/2:
-                plt.plot(xmo, np.array(modl)+h_excess, color=colorModel,
-                         linewidth=1.5, linestyle='dashed',
-                         label='no CSE', alpha=0.5)
-            if j_excess!=0 and np.abs(wl0-1.26)<=0.3/2:
-                plt.plot(xmo, np.array(modl)+j_excess, color=colorModel,
-                          linewidth=1.5, linestyle='dashed',
-                          label='no CSE', alpha=0.5)
-        plt.legend(loc='upper left', prop={'size':9}, numpoints=1,
-                    frameon=False)
-        fits_model['AVG_MAG '+filt] = round(modl.mean(), 3)
-        fits_model['ABS_MAG_DERED '+filt] = round(np.mean(modl-_red)-5*np.log10(a['d_kpc']/0.01), 3)
+            else:
+                ### K,H excess
+                if l_excess!=0 and np.abs(wl0-3.5)<=0.5/2:
+                    print '--- I SHOULD NOT PASS HERE!?! ---'
+                    plt.plot(xmo, np.array(modl)+l_excess, color=colorModel,
+                             linewidth=1.5, linestyle='dashed',
+                             label='no CSE', alpha=0.5)
+                if k_excess!=0 and np.abs(wl0-2.2)<=0.3/2:
+                    print '--- I SHOULD NOT PASS HERE!?! ---'
+                    plt.plot(xmo, np.array(modl)+k_excess, color=colorModel,
+                             linewidth=1.5, linestyle='dashed',
+                             label='no CSE', alpha=0.5)
+                if h_excess!=0 and np.abs(wl0-1.6)<=0.3/2:
+                    print '--- I SHOULD NOT PASS HERE!?! ---'
+                    plt.plot(xmo, np.array(modl)+h_excess, color=colorModel,
+                             linewidth=1.5, linestyle='dashed',
+                             label='no CSE', alpha=0.5)
+                if j_excess!=0 and np.abs(wl0-1.26)<=0.3/2:
+                    print '--- I SHOULD NOT PASS HERE!?! ---'
+                    plt.plot(xmo, np.array(modl)+j_excess, color=colorModel,
+                              linewidth=1.5, linestyle='dashed',
+                              label='no CSE', alpha=0.5)
+            plt.legend(loc='upper left', prop={'size':9}, numpoints=1,
+                        frameon=False)
 
-        y_min = min(min(modl), np.min([data[k]-0*edata[k] for k in w[0]]))
-        y_max = max(max(modl), np.max([data[k]+0*edata[k] for k in w[0]]))
-        plt.text(xmo[np.argmax(modl)]%1+0.1, y_min, filt,
-                 va='bottom', ha='right', size=12, color='k',
-                 alpha=0.33, fontweight='bold')
-        plt.ylim(y_min-0.15*(y_max-y_min), y_max+0.25*(y_max-y_min))
-        plt.xlim(-0.1,1.1)
-        uni = labelPanel(uni)
-        plt.text(1.05, plt.ylim()[1]-0.05*(plt.ylim()[1]-plt.ylim()[0]),
-                 r'$\chi^2=$%4.2f'%chi2, va='top', ha='right',
-                 size=10)
-        _y = ax.get_yticks()
-        if len(_y>7):
-            ax.set_yticks(_y[1:-1][::2])
-        elif len(_y>5):
-            ax.set_yticks(_y[1:-1])
-        ax.tick_params(axis='both', which='major', labelsize=10)
+            y_min = min(min(modl), np.min([data[k]-0*edata[k] for k in w[0]]))
+            y_max = max(max(modl), np.max([data[k]+0*edata[k] for k in w[0]]))
+            plt.text(xmo[np.argmax(modl)]%1+0.1, y_min, filt,
+                     va='bottom', ha='right', size=12, color='k',
+                     alpha=0.33, fontweight='bold')
+            plt.ylim(y_min-0.15*(y_max-y_min), y_max+0.25*(y_max-y_min))
+            plt.xlim(-0.1,1.1)
+            uni = labelPanel(uni)
+            plt.text(1.05, plt.ylim()[1]-0.05*(plt.ylim()[1]-plt.ylim()[0]),
+                     r'$\chi^2=$%4.2f'%chi2, va='top', ha='right',
+                     size=10)
+            _y = ax.get_yticks()
+            if len(_y>7):
+                ax.set_yticks(_y[1:-1][::2])
+            elif len(_y>5):
+                ax.set_yticks(_y[1:-1])
+            ax.tick_params(axis='both', which='major', labelsize=10)
 
     for k in excess.keys():
         excess[k] = np.array(excess[k])
@@ -2650,23 +2701,24 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     # == plot colors:
     print 'average dereddened colors:'
     for i, filt in enumerate(list_color):
-        if test1plot:
-            #ax = plt.subplot((len(list_filt)+len(list_color)+2)/__np+__op, 4, subplot)
-            ax = plt.subplot((len(list_filt)+len(list_color)+showLum)/__np+__op, 4, subplot)
+        if plot:
+            if test1plot:
+                #ax = plt.subplot((len(list_filt)+len(list_color)+2)/__np+__op, 4, subplot)
+                ax = plt.subplot((len(list_filt)+len(list_color)+showLum)/__np+__op, 4, subplot)
 
-            if subplot%4==0:
-                subplot += 3
+                if subplot%4==0:
+                    subplot += 3
+                else:
+                    subplot += 1
+                ax.set_xticks([0,0.2,0.4,0.6,0.8,1.0])
             else:
-                subplot += 1
-            ax.set_xticks([0,0.2,0.4,0.6,0.8,1.0])
-        else:
-            ax = plt.subplot((len(list_filt)+len(list_color)+2)/__np+__op, 2, subplot)
-            subplot+=1
+                ax = plt.subplot((len(list_filt)+len(list_color)+2)/__np+__op, 2, subplot)
+                subplot+=1
 
         w = np.where(np.array(filtname)==filt)[0]
         w = (np.array(w)[phi[w].argsort()], )
         wi = np.where([edata[k]>0 for k in w[0]])
-        if len(wi[0])>1:
+        if len(wi[0])>=1:
             chi2 = np.mean([((data[k]-res[k])/edata[k])**2 for k in w[0][wi]])
             allChi2.append((filt, chi2))
         else:
@@ -2727,6 +2779,10 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                 elif 'dMAG ' in k and filt.split('-')[1] in k:
                     modl -= a[k]
 
+        fits_data['COLOR '+filt] = np.interp(fits_data['PHASE'], xmo, np.array(modl))
+        fits_model['AVG_COLOR '+filt] = round(modl.mean(), 3)
+        fits_model['AVG_COLOR_DERED '+filt] = round(np.mean(modl-_red), 3)
+
         # -- find outliers:
         w__ = np.where(np.array([np.abs(data[k]-res[k]) for k in w[0]])>3.*np.array([edata[k] for k in w[0]]))
         if len(w__[0])>0 and showOutliers:
@@ -2737,100 +2793,96 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         tmp = list(set(orig[w]))
         avg = np.mean(modl)
         ptp = np.ptp(modl)
+        if plot:
+            for j,s in enumerate(np.sort(tmp)):
+                color = plt.cm.get_cmap(colorMap)(j/float(max(len(tmp)-1,1)))
+                color = [0.8*np.sqrt(c) for c in color[:-1]]
+                color.append(1)
 
-        for j,s in enumerate(np.sort(tmp)):
-            color = plt.cm.get_cmap(colorMap)(j/float(max(len(tmp)-1,1)))
-            color = [0.8*np.sqrt(c) for c in color[:-1]]
-            color.append(1)
+                _w = np.where(orig[w]==s)
+                for df in [-1,0,1]:
+                    # -- typical error bar
+                    if df == 0:
+                        meanerr = np.mean([np.abs(edata[k]) for k in w[0][_w]])
+                        plt.errorbar(0.95+0.1*j/float(len(tmp)), avg+0.3*ptp-0.15*j*ptp,
+                            yerr=meanerr, linestyle='none',
+                            marker='.', alpha=0.5,
+                            markersize=3, color=color)
+                    # -- data points
+                    wi = np.where([edata[k]>0 for k in w[0][_w]])
+                    if len(wi[0]):
+                        plt.plot(phi[w][_w][wi]+df, [data[k] for k in w[0][_w][wi]],
+                            linestyle='none',
+                            marker='.', alpha=0.7, label=s if df==0 else '',
+                            markersize=3, color=color)
+                    wi = np.where([edata[k]<=0 for k in w[0][_w]])
+                    if len(wi[0]):
+                        plt.plot(phi[w][_w][wi]+df, [data[k] for k in w[0][_w][wi]],
+                            linestyle='none',
+                            marker='x', alpha=0.5, label=s+' ignored' if df==0 else '',
+                            markersize=3, color=color)
 
-            _w = np.where(orig[w]==s)
-            for df in [-1,0,1]:
-                # -- typical error bar
-                if df == 0:
-                    meanerr = np.mean([np.abs(edata[k]) for k in w[0][_w]])
-                    plt.errorbar(0.95+0.1*j/float(len(tmp)), avg+0.3*ptp-0.15*j*ptp,
-                        yerr=meanerr, linestyle='none',
-                        marker='.', alpha=0.5,
-                        markersize=3, color=color)
-                # -- data points
-                wi = np.where([edata[k]>0 for k in w[0][_w]])
-                if len(wi[0]):
-                    plt.plot(phi[w][_w][wi]+df, [data[k] for k in w[0][_w][wi]],
-                        linestyle='none',
-                        marker='.', alpha=0.7, label=s if df==0 else '',
-                        markersize=3, color=color)
-                wi = np.where([edata[k]<=0 for k in w[0][_w]])
-                if len(wi[0]):
-                    plt.plot(phi[w][_w][wi]+df, [data[k] for k in w[0][_w][wi]],
-                        linestyle='none',
-                        marker='x', alpha=0.5, label=s+' ignored' if df==0 else '',
-                        markersize=3, color=color)
+            ### model
+            print '%-20s = %5.3f'%(filt, np.mean(modl-_red))
+            plt.plot(xmo, np.array(modl), color=colorModel, linewidth=2, alpha=0.5)
 
+            ### K,H excess
+            e = 0
+            if not f_excess is None:
+                e += f_excess(photfilt2.effWavelength_um(filt.split('-')[0]))
+                e -= f_excess(photfilt2.effWavelength_um(filt.split('-')[1]))
+            else:
+                if np.abs(photfilt2.effWavelength_um(filt.split('-')[0])-3.5)<0.5/2:
+                    e += l_excess
+                if np.abs(photfilt2.effWavelength_um(filt.split('-')[1])-3.5)<0.5/2:
+                    e -= l_excess
+                if np.abs(photfilt2.effWavelength_um(filt.split('-')[0])-2.2)<0.3/2:
+                    e += k_excess
+                if np.abs(photfilt2.effWavelength_um(filt.split('-')[1])-2.2)<0.3/2:
+                    e -= k_excess
+                if np.abs(photfilt2.effWavelength_um(filt.split('-')[0])-1.6)<0.3/2:
+                    e += h_excess
+                if np.abs(photfilt2.effWavelength_um(filt.split('-')[1])-1.6)<0.3/2:
+                    e -= h_excess
+                if np.abs(photfilt2.effWavelength_um(filt.split('-')[0])-1.26)<0.3/2:
+                    e += j_excess
+                if np.abs(photfilt2.effWavelength_um(filt.split('-')[1])-1.26)<0.3/2:
+                    e -= j_excess
+            if np.abs(e)>0.005:
+                plt.plot(xmo, np.array(modl)+e, color=colorModel,
+                         linewidth=1.5, linestyle='dashed',
+                         label='no CSE', alpha=0.5)
+            plt.legend(loc='upper left', prop={'size':9}, numpoints=1,
+                       frameon=False)
 
-        ### model
-        print '%-20s = %5.3f'%(filt, np.mean(modl-_red))
-        plt.plot(xmo, np.array(modl), color=colorModel, linewidth=2, alpha=0.5)
-        fits_data['COLOR '+filt] = np.interp(fits_data['PHASE'], xmo, np.array(modl))
+            y_min = min(min(modl), np.min([data[k]-0*edata[k] for k in w[0]]))
+            y_max = max(max(modl), np.max([data[k]+0*edata[k] for k in w[0]]))
 
-        ### K,H excess
-        e = 0
-        if not f_excess is None:
-            e += f_excess(photfilt2.effWavelength_um(filt.split('-')[0]))
-            e -= f_excess(photfilt2.effWavelength_um(filt.split('-')[1]))
-        else:
-            if np.abs(photfilt2.effWavelength_um(filt.split('-')[0])-3.5)<0.5/2:
-                e += l_excess
-            if np.abs(photfilt2.effWavelength_um(filt.split('-')[1])-3.5)<0.5/2:
-                e -= l_excess
-            if np.abs(photfilt2.effWavelength_um(filt.split('-')[0])-2.2)<0.3/2:
-                e += k_excess
-            if np.abs(photfilt2.effWavelength_um(filt.split('-')[1])-2.2)<0.3/2:
-                e -= k_excess
-            if np.abs(photfilt2.effWavelength_um(filt.split('-')[0])-1.6)<0.3/2:
-                e += h_excess
-            if np.abs(photfilt2.effWavelength_um(filt.split('-')[1])-1.6)<0.3/2:
-                e -= h_excess
-            if np.abs(photfilt2.effWavelength_um(filt.split('-')[0])-1.26)<0.3/2:
-                e += j_excess
-            if np.abs(photfilt2.effWavelength_um(filt.split('-')[1])-1.26)<0.3/2:
-                e -= j_excess
-        if np.abs(e)>0.005:
-            plt.plot(xmo, np.array(modl)+e, color=colorModel,
-                     linewidth=1.5, linestyle='dashed',
-                     label='no CSE', alpha=0.5)
-        plt.legend(loc='upper left', prop={'size':9}, numpoints=1,
-                   frameon=False)
-        fits_model['AVG_COLOR '+filt] = round(modl.mean(), 3)
-        fits_model['AVG_COLOR_DERED '+filt] = round(np.mean(modl-_red), 3)
+            plt.text(xmo[np.argmax(modl)]%1+0.1, y_min, filt.replace('-', ' -\n'),
+                     va='bottom', ha='right', size=12, color='k',
+                     alpha=0.33, fontweight='bold')
+            plt.ylim(y_min-0.15*(y_max-y_min), y_max+0.25*(y_max-y_min))
+            plt.xlim(-0.1,1.1)
+            uni = labelPanel(uni)
+            plt.text(1.05, plt.ylim()[1]-0.05*(plt.ylim()[1]-plt.ylim()[0]),
+                     r'$\chi^2=$%4.2f'%chi2, va='top', ha='right',
+                     size=10)
+            _y = ax.get_yticks()
+            if len(_y>7):
+                ax.set_yticks(_y[1:-1][::2])
+            elif len(_y>5):
+                ax.set_yticks(_y[1:-1])
+            ax.tick_params(axis='both', which='major', labelsize=10)
 
-        y_min = min(min(modl), np.min([data[k]-0*edata[k] for k in w[0]]))
-        y_max = max(max(modl), np.max([data[k]+0*edata[k] for k in w[0]]))
-
-        plt.text(xmo[np.argmax(modl)]%1+0.1, y_min, filt.replace('-', ' -\n'),
-                 va='bottom', ha='right', size=12, color='k',
-                 alpha=0.33, fontweight='bold')
-        plt.ylim(y_min-0.15*(y_max-y_min), y_max+0.25*(y_max-y_min))
-        plt.xlim(-0.1,1.1)
-        uni = labelPanel(uni)
-        plt.text(1.05, plt.ylim()[1]-0.05*(plt.ylim()[1]-plt.ylim()[0]),
-                 r'$\chi^2=$%4.2f'%chi2, va='top', ha='right',
-                 size=10)
-        _y = ax.get_yticks()
-        if len(_y>7):
-            ax.set_yticks(_y[1:-1][::2])
-        elif len(_y>5):
-            ax.set_yticks(_y[1:-1])
-        ax.tick_params(axis='both', which='major', labelsize=10)
-
-    # -- last plot gets the xlabel set
-    plt.xlabel('pulsation phase')
+            # -- last plot gets the xlabel set
+            plt.xlabel('pulsation phase')
 
     if len(MJDoutliers)>0:
         print 'ALL MJD outliers:', MJDoutliers
 
     #### THIRD plot: spectra ##############
     show_spectra_res =  True # show residuals
-    if plot==True and any([obs[1].split(';')[0]=='normalized spectrum' for obs in x]):
+    if plot and any([obs[1].split(';')[0]=='normalized spectrum' for obs in x]):
         plt.close(12)
         if show_spectra_res :
             figures.append(plt.figure(12, figsize=(12,10)))
@@ -2922,9 +2974,6 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
     print form%allChi2[-1]
     print 'number of data points:', len(x)
 
-    if not plot:
-        return
-    # -- period plot
     if 'PERIOD1' in a.keys():
         mjd = np.array([o[0] if not o[0] is None else np.nan for o in x])
 
@@ -2941,16 +2990,6 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         _y = (phi[mjd>1]-phi0[mjd>1]+0.5)%1.-0.5
         _x = mjd[mjd>1]
 
-        # plt.figure(13, figsize=(8,5))
-        # plt.clf()
-        # if not title is None:
-        #     plt.title(title.split(' p=')[0])
-        # plt.plot(_x, _y, 'ok', label='observational data')
-        # plt.xlabel('MJD')
-        # plt.ylabel('$\Delta\phi$')
-        # plt.grid()
-        # colors = {1:'0.5', 2:'r', 3:'b'}
-
         print ' > observed period change: %3.2f s/yr'%a['PERIOD1']
         print ' > model prediction from Fadeyev 2014 (blue edge -> red edge)'
 
@@ -2961,19 +3000,75 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             print ' crossing %d'%i,
             print 'from %7.2f -> %7.2f s/yr'%tmp
 
-    # === save FITS and plots
+    if not f_excess is None:
+        tmp = tuple([f_excess(l) for l in [2., 5., 10., 24]])
+        print '--------------------------------------------------------------'
+        print 'excess at 2, 5, 10 and 24 um (mag): %5.3f, %5.3f, %5.3f, %5.3f'%tmp
+        print '--------------------------------------------------------------'
+
+    if plot:
+        figures.append(plt.figure(99))
+        plt.clf()
+        ax2 = plt.subplot(111)
+        plt.grid()
+        plt.xscale('log')
+        plt.ylabel('apparent magnitude')
+
+        _X = [0.3, 0.5, 1, 2, 3, 5, 10,20, 50, 100]
+        _X = filter(lambda x: x<=1.2*max(excess['wl']) and
+                              x>=0.8*min(excess['wl']), _X)
+        ax2.set_xticks(_X)
+        ax2.set_xticklabels([str(_x) for _x in _X])
+        # - data
+
+        for k in range(len(excess['data med'])):
+            off = excess['excess'][k] - excess['reddened'][k]
+            color = 'b' if excess['sign'][k]>=0 else 'orange'
+            plt.plot(excess['wl'][k], -excess['data med'][k] - off,
+                    'h' if excess['sign'][k]>=0 else 'd',
+                     color=color, alpha=0.5, label='model - photometric data' if k==0 else '')
+            Q1 = excess['data med'][k] - np.sqrt((excess['data Q1'][k] -
+                                                  excess['data med'][k])**2 + excess['err'][k]**2)
+            Q3 = excess['data med'][k] + np.sqrt((excess['data Q3'][k] -
+                                                  excess['data med'][k])**2 + excess['err'][k]**2)
+            plt.plot(excess['wl'][k], -Q1 - off,
+                    marker='_', color=color, alpha=0.5)
+            plt.plot(excess['wl'][k], -Q3 - off,
+                    marker='_', color=color, alpha=0.5)
+            plt.plot([excess['wl'][k],excess['wl'][k]],
+                    [-Q1-off, -Q3-off], '-', color=color, alpha=0.5)
+        plt.hlines(0, excess['wl'].min(),excess['wl'].max(), linestyle='dotted')
+        wl = np.logspace(np.log10(min(excess['wl'])),
+                         np.log10(max(excess['wl'])), 100)
+        if not f_excess is None:
+            plt.plot(wl, [f_excess(z) for z in wl], '--y',label='modeled IR excess')
+        plt.legend(loc='upper left')
+        plt.xlabel('effective wavelength (um)')
+        plt.ylabel('$\Delta$ magnitude')
+        if title[0] != ' ':
+            plt.title(title, fontsize=12, fontweight='bold')
+
+    # === save FITS and plots =============================================
     if exportFits:
-        if not os.path.exists('EXPORT'):
-            os.mkdir('EXPORT')
-        name = time.asctime().replace(' ', '_')
-        print '--EXPORT--:', name
-        if not title is None:
-            name = title.replace(' ', '_')+'_'+name
+        if not starName is None:
+            filename = starName.replace(' ', '_')
+        else:
+            filename = 'SPIPS_model'
+
+        filename = filename.replace('$','').replace("\\",'')
+        filename = filename.replace('{','').replace('}','')
+        filename = filename.replace(';','_')
+
+        print '--EXPORT--:', filename
+
         # -- FITS
         hdu = pyfits.PrimaryHDU()
-        if getpass.getuser() == 'amerand':
-            hdu.header['AUTHOR'] = 'Antoine Merand'
+        hdu.header['AUTHOR'] = getpass.getuser()
+        hdu.header['RUNDATE'] = time.asctime()
         hdu.header['COMMENT'] = 'generated with SPIPS: spectrophoto-interferometry of pulsating stars'
+        hdu.header['COMMENT'] = 'https://github.com/amerand/SPIPS'
+        if not starName is None:
+            hdu.header['STARNAME'] = starName
 
         for k in np.sort(a.keys()):
             hdu.header['HIERARCH PARAM '+k] = a[k]
@@ -2994,13 +3089,13 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
                     unit=units[u]
             cols.append(pyfits.Column(name=k, format='E', unit=unit,
                                       array=fits_data[k]))
-        hducols = pyfits.ColDefs(cols)
-        hdum = pyfits.new_table(hducols)
+        hdum = pyfits.BinTableHDU.from_columns(cols)
+
         hdum.header['EXTNAME'] = 'MODEL'
 
         # -- data
         cols=[]
-        cols.append(pyfits.Column(name='MJD', format='E12.10',
+        cols.append(pyfits.Column(name='MJD', format='E',
                                       array=np.array([o[0] for o in x])))
         # -- this encodes lots of different possible things...:
         tmp = []
@@ -3014,7 +3109,6 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
             tmp.append('|'.join([str(q) for q in _t]))
         tmp = np.array(tmp)
         n = max([len(s) for s in tmp])
-        n = 50 # should work for all files
         # -- build data table
         cols.append(pyfits.Column(name='OBS', format='A'+str(n), array=tmp))
         cols.append(pyfits.Column(name='MEAS', format='E',
@@ -3028,8 +3122,9 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
         cols.append(pyfits.Column(name='PERIOD', format='E11.8',
                                       array=period))
 
-        hducols = pyfits.ColDefs(cols)
-        hdud = pyfits.new_table(hducols)
+        #hducols = pyfits.ColDefs(cols)
+        #hdud = pyfits.new_table(hducols)
+        hdud = pyfits.BinTableHDU.from_columns(cols)
         hdud.header['EXTNAME'] = 'DATA'
         hdud.header['COMMENT'] = 'OBS colums contains a description of the data'
         hdud.header['COMMENT'] = 'the string before ; defines the type, after ; is the source'
@@ -3040,83 +3135,31 @@ def model(x, a, plot=False, title=None, verbose=False, uncer=None, showOutliers=
 
         thdulist = pyfits.HDUList([hdu, hdud, hdum])
 
-        thdulist.writeto(os.path.join('EXPORT', name+'.fits'))
+        if not os.path.isdir(_dir_export):
+            os.path.mkdir(_dir_export)
+        thdulist.writeto(os.path.join(_dir_export, filename+'.fits'))
         for k, f in enumerate(figures):
-            f.savefig(os.path.join('EXPORT', name+'_'+str(k)+'.pdf'))
+            f.savefig(os.path.join(_dir_export, filename+'_Fig'+str(k)+'.pdf'))
 
-    if not len(excess['wl']):
-        plt.close(99)
-        return
-    if not f_excess is None:
-        tmp = tuple([f_excess(l) for l in [2., 5., 10., 24]])
-        print '--------------------------------------------------------------'
-        print 'excess at 2, 5, 10 and 24 um (mag): %5.3f, %5.3f, %5.3f, %5.3f'%tmp
-        print '--------------------------------------------------------------'
 
-    plt.figure(99)
-    plt.clf()
-    # ax1 = plt.subplot(211)
-    # plt.grid()
-    # plt.plot(excess['wl'], excess['model avg'], 'xk', label='Model')
-    # plt.plot(excess['wl'], excess['reddened'], '+r', label='Model + red.')
-    # plt.plot(excess['wl'], excess['excess'], 'oy', alpha=0.5,
-    #         label='Model + red + IR excess')
-    # plt.xscale('log')
-    # plt.legend(loc='upper right')
-    # plt.ylabel('magnitude')
-    #
-    # ax2 = plt.subplot(212, sharex=ax1)
-    ax2 = plt.subplot(111)
-    plt.grid()
-    #plt.plot(excess['wl'], -excess['excess']+excess['reddened'], 'oy',
-    #        alpha=0.5, label='modeled IR excess')
-    plt.xscale('log')
-    #ax1.legend(loc='lower right')
-    #ax1.set_ylim(ax1.get_ylim()[1], ax1.get_ylim()[0])
-    plt.ylabel('apparent magnitude')
-
-    _X = [0.3, 0.5, 1, 1.5, 2, 3, 5, 10,20, 50, 100]
-    _X = filter(lambda x: x<=1.2*max(excess['wl']) and
-                          x>=0.8*min(excess['wl']), _X)
-    ax2.set_xticks(_X)
-    ax2.set_xticklabels([str(x) for x in _X])
-    # - data
-
-    for k in range(len(excess['data med'])):
-        off = excess['excess'][k] - excess['reddened'][k]
-        color = 'b' if excess['sign'][k]>=0 else 'orange'
-        plt.plot(excess['wl'][k], -excess['data med'][k] - off,
-                'h' if excess['sign'][k]>=0 else 'd',
-                 color=color, alpha=0.5, label='model - photometric data' if k==0 else '')
-        Q1 = excess['data med'][k] - np.sqrt((excess['data Q1'][k] -
-                                              excess['data med'][k])**2 + excess['err'][k]**2)
-        Q3 = excess['data med'][k] + np.sqrt((excess['data Q3'][k] -
-                                              excess['data med'][k])**2 + excess['err'][k]**2)
-        plt.plot(excess['wl'][k], -Q1 - off,
-                marker='_', color=color, alpha=0.5)
-        plt.plot(excess['wl'][k], -Q3 - off,
-                marker='_', color=color, alpha=0.5)
-        plt.plot([excess['wl'][k],excess['wl'][k]],
-                [-Q1-off, -Q3-off], '-', color=color, alpha=0.5)
-    plt.hlines(0, excess['wl'].min(),excess['wl'].max(), linestyle='dotted')
-    wl = np.logspace(np.log10(min(excess['wl'])),
-                     np.log10(max(excess['wl'])), 100)
-    if not f_excess is None:
-        plt.plot(wl, [f_excess(z) for z in wl], '--y',label='modeled IR excess')
-    plt.legend(loc='upper left')
-    plt.xlabel('effective wavelength (um)')
-    plt.ylabel('$\Delta$ magnitude')
-    if title[0] != ' ':
-        plt.title(title, fontsize=12, fontweight='bold')
     return res
 
-def importFits(fitsname, plot=False):
+def importFits(fitsname, runSPIPS=False):
+    """
+    read fits and extract parameters dictionnary and data vector
+    """
     f = pyfits.open(fitsname)
+    if 'STARNAME' in f[0].header.keys():
+        starName = f[0].header['STARNAME']
+    else:
+        starName = ''
+
     # -- build dict of parameters:
     a = {}
     for k in filter(lambda x: x.startswith('PARAM '), f[0].header):
         a[k.split('PARAM ')[1]] = f[0].header[k]
-    # -- build data vector:
+
+    # -- build data list:
     obs = []
     for k in range(len(f['DATA'].data)):
         tmp = [f['DATA'].data['MJD'][k]] # MJD
@@ -3140,151 +3183,11 @@ def importFits(fitsname, plot=False):
         tmp.append(f['DATA'].data['MEAS'][k]) # measurement
         tmp.append(f['DATA'].data['ERR'][k]) # error
         obs.append(tuple(tmp))
-    if plot:
-        phi = f['DATA'].data['PHASE']
-        meas = f['DATA'].data['MEAS']
-        err = f['DATA'].data['ERR']
-        types = []
-        for o in obs:
-            if o[1].startswith('mag') or \
-                o[1].startswith('color') or \
-                o[1].startswith('flux'):
-                types.append(o[1]+'|'+o[2])
-            elif 'diam' in o[1].split(';'):
-                if isinstance(o[2], list) or isinstance(o[2], tuple):
-                    types.append(o[1]+'|'+str(o[2][0]))
-                elif len(0)>4:
-                    types.append(o[1]+'|'+str(o[2]))
-                else:
-                    types.append(o[1])
-            else:
-                types.append(o[1])
-        types = [t.strip() for t in types]
-        types = np.array(types)
-
-        plt.close(20)
-        plt.figure(20, figsize=(6,10))
-        plt.subplots_adjust(top=0.98, bottom=0.05,
-                            left=0.12, right=0.97)
-        # --- Vrad ---
-        ax1 = plt.subplot(311)
-        plt.plot(f['MODEL'].data['PHASE'], f['MODEL'].data['Vrad'], '-', color='k',
-                 alpha=0.5, linewidth=2)
-        for s in filter(lambda x: 'vrad' in x.split('|')[0].split(';')[0], set(types)):
-            w = np.where(types==s)
-            plt.errorbar(phi[w], meas[w], yerr=err[w], fmt='.', markersize=6,
-                         label=s.split(';')[1].strip() if ';' in s else s)
-        plt.ylabel('Vrad (km/s)')
-        plt.legend(loc='lower center', prop={'size':10}, frameon=False,
-                   numpoints=1)
-        try:
-            plt.text(0.02, plt.ylim()[1]-0.02*(plt.ylim()[1]-plt.ylim()[0]),
-                         r'$\chi^2$=%4.2f'%f[0].header['CHI2 VRAD'],
-                         va='top', ha='left', size=10)
-        except:
-            pass
-        # --- Diam ---
-        plt.subplot(312, sharex=ax1)
-        for k in [c.name for c in f['MODEL'].columns]:
-            if k=='diam':
-                plt.plot(f['MODEL'].data['PHASE'], f['MODEL'].data[k], '-',
-                 alpha=0.5, label=k, linewidth=2, color='k')
-            elif 'diam' in k:
-                plt.plot(f['MODEL'].data['PHASE'], f['MODEL'].data[k], '-',
-                 alpha=0.5, label=k, linewidth=1 ,
-                 linestyle='dashed' if 'diamK' in k else '-')
-
-        for s in filter(lambda x: 'diam' in x.split('|')[0].split(';')[0], set(types)):
-            w = np.where(types==s)
-            plt.errorbar(phi[w], meas[w], yerr=err[w], fmt='.', markersize=6,
-                         label=s)
-        plt.legend(loc='lower center', prop={'size':10}, frameon=False,
-                   numpoints=1)
-        plt.ylabel('angular diam (mas)')
-        for i,k in enumerate(filter(lambda x: 'CHI2' in x and
-                        ('LD' in x or 'UD' in x), f[0].header.keys())):
-            plt.text(0.02, plt.ylim()[0]+(0.02+i*0.02)*(plt.ylim()[1]-plt.ylim()[0]),
-                         r'%s $\chi^2$=%4.2f'%(k.split('CHI2 ')[1], f[0].header[k]),
-                         va='bottom', ha='left', size=10)
-
-        # ---  Teff ---
-        plt.subplot(313, sharex=ax1)
-        plt.plot(f['MODEL'].data['PHASE'], f['MODEL'].data['Teff'], '-', color='k',
-                 alpha=0.5, linewidth=2)
-        for s in filter(lambda x: 'teff' in x.split('|')[0].split(';')[0], set(types)):
-            w = np.where(types==s)
-            plt.errorbar(phi[w], meas[w], yerr=err[w], fmt='.', markersize=6,
-                         label=s.split(';')[1].strip() if ';' in s else '')
-        plt.ylabel('effective temperature (K)')
-        plt.xlabel('phase')
-        plt.legend(loc='upper center', prop={'size':10}, frameon=False,
-                   numpoints=1)
-        try:
-            plt.text(0.02, plt.ylim()[0]+0.02*(plt.ylim()[1]-plt.ylim()[0]),
-                         r'$\chi^2$=%4.2f'%f[0].header['CHI2 TEFF'],
-                         va='bottom', ha='left', size=10)
-        except:
-            pass
-
-        # -- PHOTOMETRY
-        # -- figure out how many mags and how many colors:
-        mags = filter(lambda x: x.startswith('mag') or x.startswith('flux'), set(types))
-        mags = set([m.split('|')[1] for m in mags])
-        colors = filter(lambda x: x.startswith('color'), set(types))
-        colors = set([c.split('|')[1] for c in colors])
-        N = len(mags)+len(colors)
-        plt.close(21)
-        plt.figure(21, figsize=(6,10))
-        plt.subplots_adjust(top=0.98, bottom=0.05,
-                            left=0.12, right=0.97)
-        p=1
-        for m in mags:
-            if p==1:
-                ax0 = plt.subplot(N,1,p)
-            else:
-                ax0 = plt.subplot(N,1,p, sharex=ax0)
-            plt.plot(f['MODEL'].data['PHASE'], f['MODEL'].data['MAG '+m],
-                     linewidth=2, alpha=0.5, color='k')
-            p+=1
-            for s in np.sort(filter(lambda x: 'mag' in x.split('|')[0].split(';')[0] and
-                            m in x.split('|')[1], set(types))):
-                w = np.where(types==s)
-                plt.errorbar(phi[w], meas[w], yerr=err[w], fmt='.',
-                             alpha=0.8, markersize=6,
-                            label=s.split(';')[1].split('|')[0].strip() if ';' in s else '')
-            plt.legend(loc='upper left', prop={'size':10}, frameon=False,
-                       numpoints=1)
-            plt.ylabel(m)
-            plt.text(0.98, plt.ylim()[1]-0.1*(plt.ylim()[1]-plt.ylim()[0]),
-                     r'$\chi^2$=%4.2f'%f[0].header['CHI2 '+m],
-                     va='top', ha='right', size=10)
-        for c in colors:
-            if p==1:
-                ax0 = plt.subplot(N,1,p)
-            else:
-                ax0 = plt.subplot(N,1,p, sharex=ax0)
-            plt.plot(f['MODEL'].data['PHASE'], f['MODEL'].data['COLOR '+c],
-                     linewidth=2, alpha=0.5, color='k')
-            p+=1
-            for s in np.sort(filter(lambda x: 'color' in x.split('|')[0].split(';')[0] and
-                            c in x.split('|')[1], set(types))):
-                w = np.where(types==s)
-                plt.errorbar(phi[w], meas[w], yerr=err[w], fmt='.',
-                             alpha=0.8, markersize=6,
-                            label=s.split(';')[1].split('|')[0].strip() if ';' in s else '')
-            plt.legend(loc='upper left', prop={'size':10}, frameon=False,
-                       numpoints=1)
-            plt.ylabel(c)
-            print plt.ylim(),
-            plt.text(0.98, plt.ylim()[1]-0.1*(plt.ylim()[1]-plt.ylim()[0]),
-                     r'$\chi^2$=%4.2f'%f[0].header['CHI2 '+c],
-                     va='top', ha='right', size=10)
-            print plt.ylim()
-        plt.xlabel('phase')
-        pass
-
     f.close()
-    return a, obs
+    if runSPIPS:
+        model(obs, a, plot=True, starName=starName, verbose=True)
+    else:
+        return a, obs
 
 def pseudoStat(x):
     # -- pseudo variance
@@ -4075,8 +3978,10 @@ def Alambda_Exctinction(wl, EB_V=0.0, Rv=3.1, Teff=6000.):
     is the optical depth in dust.
 
     see Astrophysical Quantities
-    8.4 INTERSTELLAR EXTINCTION IN THE ULTRAVIOLET
-    21.2 GALACTIC INTERSTELLAR EXTINCTION
+        8.4 INTERSTELLAR EXTINCTION IN THE ULTRAVIOLET
+        21.2 GALACTIC INTERSTELLAR EXTINCTION [[[not used anymore!]]]
+
+    TABLE 3 and 4 from FITZPATRICK: 1999 PASP, 111-63 for visible, IR
     """
     global __SPE
     ### res == A_lambda/E(B-V)

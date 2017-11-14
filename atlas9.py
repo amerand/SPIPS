@@ -36,8 +36,6 @@ print 'ATLAS9: _dir_data=', _dir_data
 import numpy as np
 import photfilt2
 from scipy.optimize import leastsq
-from scipy import weave
-from scipy.weave import converters
 import urllib2
 import cPickle
 
@@ -279,6 +277,40 @@ def sliding_avg_interp1d(x,y,x0,dx0=None):
 
     assumes x and x0 sorted!!!
     """
+    if not isinstance(x, np.ndarray):
+        x = np.array(x)
+    if not isinstance(y, np.ndarray):
+        y = np.array(y)
+    if not isinstance(x0, np.ndarray):
+        x0 = np.array(x0)
+    if dx0==None:
+        dx0 = np.gradient(x0)
+    y0 = np.zeros(len(x0))
+
+    for i in range(len(x0)):
+        # -- slow :(
+        #y0[i] = np.mean(y[(x>=x0[i]-dx0[i]/2)*(x<x0[i]+dx0[i]/2)])
+        # -- faster
+        y0[i] = np.mean(y[np.searchsorted(x, x0[i]-dx0[i]/2., side='left'):
+                          np.searchsorted(x, x0[i]+dx0[i]/2., side='right')])
+
+    if not all(np.isfinite(y0)):
+        wf = np.where(np.isfinite(y0))
+        wi = np.where(1-np.isfinite(y0))
+        y0[wi] = np.interp(x0[wi], x0[wf], y0[wf])
+    return y0
+
+def sliding_avg_interp1d_WEAVE(x,y,x0,dx0=None):
+    """
+    use to interpret y(x) for x0+-dx0/2.
+
+    use if y is over-resolved compared to dx0 (same shape as x0)
+
+    assumes x and x0 sorted!!!
+    """
+    from scipy import weave
+    from scipy.weave import converters
+
     if not isinstance(x, np.ndarray):
         x = np.array(x)
     if not isinstance(y, np.ndarray):
@@ -572,8 +604,8 @@ def flambda(wavel, teff, logg, metal=0.0, plot=False):
     # -- log/log interpolation
     spectr = lambda x,wavel: 10**np.interp(np.log10(wavel),
                                            np.log10(x[1]), np.log10(x[4]))
-    # -- Rayleigh-Jeans:
-    spectr = lambda x,wavel: np.interp(wavel, x[1], x[4]*x[1]**4)/wavel**4
+    # -- optimized for Rayleigh-Jeans:
+    #spectr = lambda x,wavel: np.interp(wavel, x[1], x[4]*x[1]**4)/wavel**4
 
     # -- check that the 4 models exist
     for t in _teff[it]:
