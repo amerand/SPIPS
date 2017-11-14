@@ -823,7 +823,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         Vgamma = interp1d(xp, yp, kind=_kind, fill_value=0.0,
                           assume_sorted=True)(np.linspace(0,1,1000)[:-1]).mean()
 
-
         if verbose:
             print 'VGAMMA:', round(Vgamma,3), 'km/s'
     elif 'VPULS A0' in a.keys():
@@ -1039,8 +1038,8 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         print 'log(R)=', round(np.log10(linRadius.mean()/C_Rsol),2)
         print 'exp. RADIUS:', round(expectedRadius,2),
         print 'Rsol (P-R from Molinaro et al. 2012)'
-    fits_model['AVG_ANGDIAM_MAS'] = round(Diam.mean(),4)
-    fits_model['AVG_RADIUS_RSOL'] = round(linRadius.mean()/C_Rsol,3)
+    fits_model['AVG_ANGDIAM'] = (round(Diam.mean(),4), 'mas')
+    fits_model['AVG_RADIUS'] = (round(linRadius.mean()/C_Rsol,3), 'Rsol')
 
     # M(R) Bono et al. ApJ 563-319 (2001)
     mass_pr = 10**(-(np.log10(Period.mean()) + 1.70 -
@@ -1056,7 +1055,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         print '           %5.2f'%round(mass_r2,2),\
             'Msol (puls MR from Bono et al. 2001)'
 
-    fits_model['ASSUMED_MASS_MSOL'] = round(mass_pr,2)
+    fits_model['ASSUMED_MASS'] = (round(mass_pr,3), 'Msol, PMR Bono+ ApJ 563-319 (2001)')
 
     # -- logg in cm/s2 (hence the 100*)
     # -- only takes into account gravity
@@ -1322,9 +1321,9 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         Lum[w].mean())
         print 'PHASE OFFSET ==', phaseOffset
 
-    fits_model['AVG_TEFF'] = round(Teff[w].mean(), 2)
-    fits_model['AVG_LUM_LSOL'] = round(Lum[w].mean(), 2)
-    fits_model['AVG_LOGG'] = round(logg[w].mean(), 3)
+    fits_model['AVG_TEFF'] = (round(Teff[w].mean(), 2), 'K')
+    fits_model['AVG_LUM'] = (round(Lum[w].mean(), 2), 'Lsol')
+    fits_model['AVG_LOGG'] = (round(logg[w].mean(), 3), 'cgs')
 
     # -- absolute bolometric magnitude
     Mbol = -2.5*np.log10(Lum)+4.74
@@ -1840,6 +1839,22 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     y_min, y_max = Vgamma, Vgamma
     MJDoutliers = []
 
+    if any(['VRAD 'in k for k in a.keys()]):
+        j = 0
+        for i in range(len(xpV)):
+            if xpV[i]>=0 and xpV[i]<1:
+                fits_model['VRAD SPLINE NODE PHI'+str(j)] = (round(xpV[i],4), 'phase')
+                fits_model['VRAD SPLINE NODE VAL'+str(j)] = (ypV[i], 'km/s')
+                j+=1
+
+    if any(['VPULS 'in k for k in a.keys()]):
+        j = 0
+        for i in range(len(xp)):
+            if xp[i]>=0 and xp[i]<1:
+                fits_model['VPULS SPLINE NODE PHI'+str(j)] = (round(xp[i],4), 'phase')
+                fits_model['VPULS SPLINE NODE VAL'+str(j)] = (yp[i], 'km/s')
+                j+=1
+
     w = np.where(types=='vpuls')
     if len(w[0])>0:
         y_min = min(y_min, np.min([data[k]-edata[k] for k in w[0]]))
@@ -1887,22 +1902,15 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         if plot and not uncer is None:
             plt.errorbar(xpV,ypV-Vgamma, fmt='.k', markersize=9,
                             xerr=exp, yerr=eyp)
-        if not useFourierVpuls:
-            j = 0
-            for i in range(len(xpV)):
-                if xpV[i]>=0 and xpV[i]<1:
-                    fits_model['VPULS SPLINE NODE PHI'+str(j)] = xpV[i]
-                    fits_model['VPULS SPLINE NODE VAL'+str(j)] = ypV[i]
-                    j+=1
-            if plot and False:
-                plt.plot(xpV, ypV-Vgamma, 'pw', markersize=9,
-                            label='Spline Nodes - V$\gamma$', alpha=0.8)
-                if not xv_pow is None:
-                    color=(0.8,0.4,0.0)
-                    plt.plot(xv_pow, Vgamma+0*xv_pow, '|', color=color,
-                             linewidth=2, markersize=12, label='Spline comb')
-                    plt.plot(xv_pow-1, Vgamma+0*xv_pow, '|', color=color,
-                              linewidth=2, markersize=12)
+        if not useFourierVpuls and plot and False:
+            plt.plot(xp, yp-Vgamma, 'pw', markersize=9,
+                        label='Spline Nodes - V$\gamma$', alpha=0.8)
+            if not xv_pow is None:
+                color=(0.8,0.4,0.0)
+                plt.plot(xv_pow, Vgamma+0*xv_pow, '|', color=color,
+                         linewidth=2, markersize=12, label='Spline comb')
+                plt.plot(xv_pow-1, Vgamma+0*xv_pow, '|', color=color,
+                          linewidth=2, markersize=12)
 
     w = np.where(types=='vrad')
     if len(w[0])>0:
@@ -1915,35 +1923,28 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         if plot:
             plt.plot(X, iVrad(X)+Vgamma, color=(0.1,0.5,0.25), linewidth=2,
                         label='model, ptp=%5.2fkm/s'%np.ptp(iVrad(X)), alpha=0.5)
-        if not useFourierVpuls:
-            j = 0
-            for i in range(len(xpV)):
-                if xpV[i]>=0 and xpV[i]<1:
-                    fits_model['VRAD SPLINE NODE PHI'+str(j)] = xpV[i]
-                    fits_model['VRAD SPLINE NODE VAL'+str(j)] = ypV[i]
-                    j+=1
-            if plot:
-                if any(['VRAD 'in k for k in a.keys()]):
-                    plt.plot(xpV, ypV, 'p', markersize=5, color=(0.5,0.25,0.1),
-                            label='Spline Nodes', alpha=0.8)
-                else:
-                    plt.plot(xpV, (ypV-Vgamma)/pfactor+Vgamma, 'p', markersize=5, color=(0.5,0.25,0.1),
-                            label='Spline Nodes', alpha=0.8)
+        if not useFourierVpuls and plot:
+            if any(['VRAD 'in k for k in a.keys()]):
+                plt.plot(xpV, ypV, 'p', markersize=5, color=(0.5,0.25,0.1),
+                        label='Spline Nodes', alpha=0.8)
+            else:
+                plt.plot(xp, (yp-Vgamma)/pfactor+Vgamma, 'p', markersize=5, color=(0.5,0.25,0.1),
+                        label='Spline Nodes', alpha=0.8)
 
-                if not xv_pow is None:
-                    color=(0.8,0.4,0.)
-                    plt.plot(xv_pow, Vgamma+0*xv_pow, '|', color=color,
-                             linewidth=2, markersize=16, label='Spline comb')
+            if not xv_pow is None:
+                color=(0.8,0.4,0.)
+                plt.plot(xv_pow, Vgamma+0*xv_pow, '|', color=color,
+                         linewidth=2, markersize=16, label='Spline comb')
 
-                    plt.plot(xv_pow-1, Vgamma+0*xv_pow, '|', color=color,
-                              linewidth=2, markersize=16)
-                    for i in x0_i:
-                        if xv_pow[i]<1.1:
-                            plt.text(xv_pow[i], Vgamma, '%d'%i, color=color,
-                                    alpha=0.5, size=8)
-                        if xv_pow[i]>0.9:
-                            plt.text(xv_pow[i]-1, Vgamma, '%d'%i, color=color,
-                                    alpha=0.5, size=8)
+                plt.plot(xv_pow-1, Vgamma+0*xv_pow, '|', color=color,
+                          linewidth=2, markersize=16)
+                for i in x0_i:
+                    if xv_pow[i]<1.1:
+                        plt.text(xv_pow[i], Vgamma, '%d'%i, color=color,
+                                alpha=0.5, size=8)
+                    if xv_pow[i]>0.9:
+                        plt.text(xv_pow[i]-1, Vgamma, '%d'%i, color=color,
+                                alpha=0.5, size=8)
 
         tmp = list(set(orig[w]))
         for i,s in enumerate(np.sort(tmp)):
@@ -2387,8 +2388,8 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         j = 0
         for i in range(len(xpT)):
             if xpT[i]>=0 and xpT[i]<1:
-                fits_model['TEFF SPLINE NODE PHI'+str(j)] = xpT[i]
-                fits_model['TEFF SPLINE NODE VAL'+str(j)] = ypT[i]
+                fits_model['TEFF SPLINE NODE PHI'+str(j)] = (xpT[i], 'phase')
+                fits_model['TEFF SPLINE NODE VAL'+str(j)] = (ypT[i], 'K')
                 j+=1
         if plot:
             plt.plot(xpT,ypT*1e-3, 'p', markersize=5,
@@ -3005,7 +3006,8 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         print '--------------------------------------------------------------'
         print 'excess at 2, 5, 10 and 24 um (mag): %5.3f, %5.3f, %5.3f, %5.3f'%tmp
         print '--------------------------------------------------------------'
-
+        for l in [1.,1.5, 2.,3, 4.,6.,8.,12., 16.,20., 25., 30.]:
+            fits_model['IR EXCESS %4.1fUM'%l] = (round(f_excess(l), 3), 'magnitude')
     if plot:
         figures.append(plt.figure(99))
         plt.clf()
