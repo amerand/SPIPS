@@ -1839,7 +1839,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     y_min, y_max = Vgamma, Vgamma
     MJDoutliers = []
 
-    if any(['VRAD 'in k for k in a.keys()]):
+    if any(['VRAD 'in k for k in a.keys()]) and not useFourierVpuls:
         j = 0
         for i in range(len(xpV)):
             if xpV[i]>=0 and xpV[i]<1:
@@ -1847,7 +1847,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                 fits_model['VRAD SPLINE NODE VAL'+str(j)] = (ypV[i], 'km/s')
                 j+=1
 
-    if any(['VPULS 'in k for k in a.keys()]):
+    if any(['VPULS 'in k for k in a.keys()]) and not useFourierVpuls:
         j = 0
         for i in range(len(xp)):
             if xp[i]>=0 and xp[i]<1:
@@ -3006,7 +3006,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         print '--------------------------------------------------------------'
         print 'excess at 2, 5, 10 and 24 um (mag): %5.3f, %5.3f, %5.3f, %5.3f'%tmp
         print '--------------------------------------------------------------'
-        for l in [1.,1.5, 2.,3, 4.,6.,8.,12., 16.,20., 25., 30.]:
+        for l in [1.,1.5, 2.,3, 4.,6.,8.,12., 16., 20., 30., 50.]:
             fits_model['IR EXCESS %4.1fUM'%l] = (round(f_excess(l), 3), 'magnitude')
     if plot:
         figures.append(plt.figure(99))
@@ -3191,6 +3191,50 @@ def importFits(fitsname, runSPIPS=False):
         model(obs, a, plot=True, starName=starName, verbose=True)
     else:
         return a, obs
+
+def datasetPhaseCoverageQuality(obs):
+    Nvrad = np.sum([(o[1].startswith('vrad') or o[1].startswith('vpuls'))
+                    and o[-1]>0 for o in obs ])
+    Nteff = np.sum([o[1].startswith('teff') and o[-1]>0 for o in obs])
+    Ninterf = np.sum(['diam' in o[1].split(';')[0]  for o in obs])
+    mags = filter(lambda o: o[1].startswith('mag') and o[-1]>0, obs)
+    Nvis, Nir = 0, 0
+    if len(mags)>0:
+        wl = np.array([photfilt2.effWavelength_um(o[2]) for o in mags])
+        Nvis += np.sum(wl<1.0)
+        Nir  += np.sum(wl>=1.0)
+    Nvis += np.sum(['color' in o[1].split(';') and o[-1]>0 for o in obs])
+    #print Nvrad, Nvis, Nir, Ninterf, Nteff
+    return qualityFuntion(Nvrad, Nvis, Nir, Ninterf, Nteff)
+
+def qualityPhaseCoverage(Nvrad=0, Nvis=0, Nir=0, Ninterf=0, Nteff=0):
+    """
+    Nvrad: number of radial velocity measurements
+    Nvis: number of visible photometric measurements
+    Nir: number of IR photometric measurements
+    Ninterf: number of interferometric measurements
+    Nteff: number of spectra and Teff measurements
+
+    stats on max gaps:
+    gap        50%   90%
+    0.20 for N> 17 N> 26
+    0.10 for N> 42 N> 64
+    0.05 for N>102 N>147
+    """
+    # -- data where good phase coverage is needed:
+    Q1 = [0, 24, 64, 144]
+    qual1 = lambda n: np.sum([n>q for q in Q1])/(len(Q1)-1.)
+    # -- data where any is needed, 10x less than q1 basically
+    Q2 = [0, 2, 6, 14]
+    qual2 = lambda n: np.sum([n>q for q in Q2])/(len(Q2)-1.)
+    # -- total quality
+    res = qual1(Nvrad) + qual2(Nir) + qual2(Ninterf)
+    if Nteff>0:
+        res += qual2(Nvis) + qual2(Nteff)
+    else:
+        res += qual1(Nvis)
+    return res
+
 
 def pseudoStat(x):
     # -- pseudo variance
