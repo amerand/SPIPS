@@ -112,7 +112,8 @@ def clean():
 
 def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, follow=None,
         N_monte_carlo=0, monte_carlo_method='randomize', ftol=1e-4, epsfcn=1e-7, plot=True,
-        starName='', maxfev=0, normalizeErrors=False, maxCores=None, verbose=True):
+        starName='', maxfev=0, normalizeErrors=False, maxCores=None, verbose=True,
+        exportFits=False):
     """
     perform a parallax of pulsation fit to the data 'obs'.
 
@@ -165,7 +166,6 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
             doNotFit.append('P-FACTOR')
         if verbose:
             print 'doNotFit=', doNotFit
-
 
     errs = [o[-1] for o in obs]
     if normalizeErrors is True:
@@ -337,7 +337,7 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
                         [np.array(o[-2]) for o in obsp],
                         err=errs, doNotFit=doNotFit,
                         fitOnly=fitOnly, verbose=False,
-                        ftol=ftol, epsfcn=ftol, follow=follow, maxfev=maxfev)
+                        ftol=ftol, epsfcn=epsfcn, follow=follow, maxfev=maxfev)
 
             mc_fits.append(tmp)
             if verbose:
@@ -390,9 +390,203 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
         fit['options'] = {'maxfev':maxfev, 'ftol':ftol, 'epsfcn':epsfcn,
                         'normalizeErrors':normalizeErrors,
                         'first_guess':first_guess, 'doNotFit':doNotFit}
-        if plot:
-            model(allobs, fit['best'], plot=True, title=starName, verbose=verbose)
+        fit['starName'] = starName
+
+        if plot or exportFits:
+            mod = model(allobs, fit['best'], plot=plot, starName=starName,
+                  verbose=verbose, exportFits=exportFits)
+        # -- if fits has been exported, edit file
+
+        if exportFits:
+            fit['export'] = mod
+            f = pyfits.open(fit['export']['FITS'], mode='update')
+            # -- add uncertainties
+            for k in sorted(fit['uncer'].keys()):
+                f[0].header['HIERARCH UNCER '+k] = fit['uncer'][k]
+            # -- add correlation matrix
+            cols = []
+            n = str(max([len(s) for s in fit['fitOnly']]))
+            cols.append(pyfits.Column(name='param', format='A'+n,
+                                      array=fit['fitOnly']))
+            for k in range(len(fit['fitOnly'])):
+                cols.append(pyfits.Column(name=fit['fitOnly'][k],
+                                          format='E',
+                                          array=fit['cor'][k,:]))
+
+            hdum = pyfits.BinTableHDU.from_columns(cols)
+            hdum.header['EXTNAME'] = 'CORREL'
+            f.append(hdum)
+            f.flush()
+            f.close()
+            directory = fit['export']['FITS'].split('.fits')[0].upper()
+            fit2html(fit,
+                    fit['export']['FITS'].split('.fits')[0].lower(),
+                    directory)
+            os.rename(fit['export']['FITS'],
+                        os.path.join(directory, os.path.basename(fit['export']['FITS'])))
+            fit['export']['FITS'] = os.path.join(directory, os.path.basename(fit['export']['FITS']))
+            if 'FIG' in fit['export']:
+                for f in fit['export']['FIG']:
+                    os.rename(f, os.path.join(directory, os.path.basename(f)))
         return fit
+
+def fit2html(f, root='spips', directory='./', makePlots=True):
+    """
+    'f' is the result from the "fit" function, ran with "plot=True" and
+    "exportFits=True"
+    """
+    if not os.path.isdir(directory):
+        os.mkdir(directory)
+
+    # -- text file with parameters and uncertainties
+    keys = f['best'].keys()
+    keys.sort()
+    filename1 = root+'_param.html'
+    fi = open(os.path.join(directory, filename1), 'w')
+    fi.write('<!DOCTYPE html>\n')
+    fi.write('<html>\n')
+    fi.write('<body>\n')
+    fi.write('<a href="https://github.com/amerand/SPIPS" target="_blank">SPIPS</a>')
+    fi.write(' model for star <b>'+f['starName']+'</b> ')
+    #fi.write('<a href="file://'+os.path.abspath(f['export']['FITS'])+'" target="_blank">'+
+    #          '[FITS export]</a>'
+    fi.write('<a href="'+os.path.basename(f['export']['FITS'])+'" target="_blank">'+
+              '[FITS export]</a>')
+    fi.write('</br>\n')
+    fi.write('<hr>\n')
+    for k in keys:
+        if f['uncer'][k]>0:
+            n = int(np.ceil(-np.log10(f['uncer'][k]))+1)
+            fmt = "<b>'%s': %."+str(n)+'f, # +/- %.'+str(n)+'f </b>'
+            fi.write(fmt%(k, f['best'][k], f['uncer'][k])+'</br>\n')
+        else:
+            fmt = "'%s': %s,"
+            fi.write(fmt%(k, str(f['best'][k]))+'</br>\n')
+    fi.write('</br>\n')
+    fi.write('<hr>\n')
+    for k in f['options']:
+        if not k in ['first_guess', 'doNotFit']:
+            fi.write('%s: %s </br>\n'%(k, str(f['options'][k])))
+
+    fi.write('</body>\n')
+    fi.write('</html>\n')
+    fi.close()
+
+    # -- correlation matrix
+    filename2 = root+'_corr.html'
+    fi = open(os.path.join(directory, filename2), 'w')
+
+    # -- parameters names:
+    nmax = np.max([len(x) for x in f['fitOnly']])
+    fmt = '%%%ds'%nmax
+    fmt = '%2d:'+fmt
+    colors = {0.0:'#FFFFFF',
+              0.5:'#CCCCCC',
+              0.7:'#FFEE66',
+              0.8:'#FF6666',
+              0.9:'#FF66FF',}
+    fi.write('<!DOCTYPE html>\n')
+    fi.write('<html>\n')
+    fi.write('<body>\n')
+    fi.write('<table style="width:100%" border="1">\n')
+    fi.write('<tr>\n')
+    fi.write('<th> correlation thresholds </th>\n')
+    for k in sorted(colors.keys()):
+        fi.write('<th bgcolor="%s">%s</th>'%(colors[k], str(k)))
+    fi.write('</tr>\n')
+    fi.write('<tr>\n')
+    fi.write('</table')
+    fi.write('</br>\n')
+
+    fi.write('<table style="width:100%" border="1">\n')
+    # -- columns header
+    fi.write('<tr>\n')
+    fi.write('<th> parameters </th>\n')
+    for i in range(len(f['fitOnly'])):
+        fi.write('<th>%02d</th>'%i)
+    fi.write('</tr>\n')
+    fi.write('\n')
+    # -- for each parameters
+    for i,p in enumerate(f['fitOnly']):
+        fi.write('<tr>\n ')
+        fi.write('<td>'+str(i)+': '+p+'</td>')
+        for j, x in enumerate(f['cor'][i,:]):
+            # tmp = '%4.1f'%x
+            # tmp = tmp.replace('0.', '.')
+            # tmp = tmp.replace('1.0', '1.')
+            tmp = ''
+            u = False
+            if (p.startswith('TEFF') and
+                f['fitOnly'][j].startswith('TEFF')) or \
+                 (p.startswith('VPULS') and
+                f['fitOnly'][j].startswith('VPULS')) or \
+                 (p.startswith('VRAD') and
+                f['fitOnly'][j].startswith('VRAD')):
+                u = True
+
+            c = colors[0]
+            if i!=j:
+                for k in sorted(colors.keys()):
+                    if abs(x)>=k:
+                        c = colors[k]
+            if u:
+                tmp = '<b>'+tmp+'</b>'
+                tmp = '-'
+            if i==j:
+                tmp = '#'
+            fi.write('<td bgcolor="%s"> %s </td> '%(c,tmp))
+
+        fi.write('\n</tr>\n')
+    fi.write('</table>\n')
+
+
+    fi.write('</body>\n')
+    fi.write('</html>\n')
+    fi.close()
+
+    # -- param+corr page
+    filename3 = root+'_main.html'
+    fi = open(os.path.join(directory, filename3), 'w')
+
+    page = """
+        <!DOCTYPE html>
+        <html>
+        <FRAMESET cols="30%, 70%">
+            <FRAMESET rows="30%, 70%">
+                <FRAME src="__figure1__">
+                <FRAME src="__filename1__">
+            </FRAMESET>
+            <FRAMESET rows="70%, 30%">
+                <FRAME src="__figure0__">
+                <FRAME src="__filename2__">
+            </FRAMESET>
+        </FRAMESET>
+        </html>
+        """
+    page = """
+    <!DOCTYPE html>
+    <html>
+    <FRAMESET rows="70%, 30%">
+      <FRAMESET cols="20%, 80%">
+        <FRAME src="__filename1__">
+        <FRAME src="__figure0__">
+      </FRAMESET>
+      <FRAMESET cols="70%, 30%">
+        <FRAME src="__filename2__">
+        <FRAME src="__figure1__">
+      </FRAMESET>
+    </FRAMESET>
+    </html>
+    """
+    page = page.replace('__filename1__', filename1).replace('__filename2__', filename2)
+    page = page.replace('__figure0__',
+                os.path.basename(filter(lambda x: 'Fig0' in x, f['export']['FIG'])[0]))
+    page = page.replace('__figure1__',
+                os.path.basename(filter(lambda x: 'Fig1' in x, f['export']['FIG'])[0]))
+
+    fi.write(page)
+    fi.close()
+    return
 
 def dispCor(fit):
     # -- parameters names:
@@ -400,12 +594,12 @@ def dispCor(fit):
     fmt = '%%%ds'%nmax
     fmt = '%2d:'+fmt
     print '|Correlations| ',
-    print'\033[45m>=.9\033[0m',
-    print'\033[41m>=.8\033[0m',
-    print'\033[43m>=.7\033[0m',
-    print'\033[100m>=.5\033[0m',
-    print'\033[0m>=.2\033[0m',
-    print'\033[90m<.2\033[0m'
+    print '\033[45m>=.9\033[0m',
+    print '\033[41m>=.8\033[0m',
+    print '\033[43m>=.7\033[0m',
+    print '\033[100m>=.5\033[0m',
+    print '\033[0m>=.2\033[0m',
+    print '\033[90m<.2\033[0m'
 
     print ' '*(2+nmax),
     for i in range(len(fit['fitOnly'])):
@@ -515,6 +709,16 @@ def sigmoid(x,x0=0,dx=0.01):
     _s = lambda x: 1/(1+np.exp(-x))
     _x = -dx + 2*((x-x0)%1)*dx
     return ((_s(_x)-_s(-dx))/(_s(dx)-_s(-dx)) + x0)%1.
+
+def fitsName(starName):
+    if starName is None:
+        return 'spips'
+    else:
+        filename = starName.lower().replace(' ', '_')
+        filename = filename.replace('$','').replace("\\",'')
+        filename = filename.replace('{','').replace('}','')
+        filename = filename.replace(';','_')
+        return filename
 
 def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutliers=False,
           exportFits=False, maxCores=None, splitDTeffects=False):
@@ -645,8 +849,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     maxLogg = 5.0
     minLogg = 0.0
 
-    # if exportFits:
-    #     plot=True
 
     # compute Vpuls and angular diam for regular padded points
     # get control points and duplicate them to get from phi=-1 to phi=+2
@@ -970,7 +1172,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
 
     # ================================
 
-
     fits_model['VGAMMA_KM/S'] = Vgamma
 
     # -- extract julian dates as the first value in the tuple
@@ -1013,9 +1214,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     d_m = a['d_kpc']*1000*C_pc # distance in meters
     c_v = 1000. # integration cste: m/s
 
-    #if not useFourierVpuls:
-        # -- numerical integration
-
+    # -- numerical integration
     Diam = -phi_intern.ptp()*2*P_s/d_m*np.cumsum(Vpuls-Vgamma)*c_v/C_mas/float(len(phi_intern))
     if 'DIAM0' in a.keys():
         Diam += a['DIAM0']
@@ -1743,10 +1942,11 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
 
     # -- start FITS data
     fits_data = collections.OrderedDict()
-    fits_data['PHASE'] = np.linspace(0,1,1000)[:-1]
+    fits_data['PHASE'] = np.linspace(0,1,1001)[:-1]
     fits_data['Vpuls'] = iVpuls(fits_data['PHASE'])
     fits_data['Vrad'] = iVrad(fits_data['PHASE'])+Vgamma
     fits_data['diam'] = iDiam(fits_data['PHASE'])
+    fits_data['R'] = np.interp(fits_data['PHASE'], phi_intern, linRadius/C_Rsol)
     fits_data['Teff'] = iTeff(fits_data['PHASE'])
     fits_data['Lum'] = iLum(fits_data['PHASE'])
     fits_data['logg'] = ilogg_m(fits_data['PHASE'])
@@ -1756,7 +1956,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     colorModel = '0.5'
 
     test1plot = True
-    plot_logg = False # obsolete -> do not turn TRUE!!!
 
     uni = 9312 # circled number
     uni = 9424 # circled small letters
@@ -2310,7 +2509,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         plt.plot(X, 10**ilogg_m(X), color=colorModel, linewidth=3,
                  alpha=0.5, label='static gravity')
         plt.plot(phi_intern, acc, '.r', label='acceleration')
-        plt.plot(phi_intern, -acc, ',r', label='- acceleration', alpha=0.5)
+        #plt.plot(phi_intern, -acc, ',r', label='- acceleration', alpha=0.5)
 
         plt.hlines(10**ilogg_m(X).mean(), -1, 2, color='k',
                    alpha=0.5, linestyle='dashed', label='logg = %4.2f'%(ilogg_m(X).mean()))
@@ -2323,6 +2522,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         plt.xlim(-0.1, 1.1)
         plt.xlabel('pulsation phase')
         plt.legend(loc='lower center', prop={'size':12}, frameon=False, numpoints=1)
+        plt.grid()
         if plot== True:
             plt.figure(10)
         else:
@@ -3052,16 +3252,10 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
 
     # === save FITS and plots =============================================
     if exportFits:
-        if not starName is None:
-            filename = starName.lower().replace(' ', '_')
-        else:
-            filename = 'SPIPS_model'
-
-        filename = filename.replace('$','').replace("\\",'')
-        filename = filename.replace('{','').replace('}','')
-        filename = filename.replace(';','_')
-
-        print '--EXPORT--:', filename
+        filename = fitsName(starName)
+        if os.path.exists(filename+'.fits'):
+            os.remove(filename+'.fits')
+        print '--EXPORT--:', filename+'.fits'
 
         # -- FITS
         hdu = pyfits.PrimaryHDU()
@@ -3083,7 +3277,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         # TODO
         units = {'Vpuls': 'km/s', 'Vrad':'km/s',
                 'diam':'mas', 'logg':'cm/s2', 'Lum':'Lsol',
-                'Teff':'K', }
+                'Teff':'K', 'R':'Rsol'}
         for k in fits_data.keys():
             unit = None
             for u in units.keys():
@@ -3139,12 +3333,16 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
 
         if not os.path.isdir(_dir_export):
             os.path.mkdir(_dir_export)
-        thdulist.writeto(os.path.join(_dir_export, filename+'.fits'))
+        export = {'FITS':os.path.join(_dir_export, filename+'.fits')}
+
+        thdulist.writeto(export['FITS'])
         if len(figures)>0:
+            export['FIG'] = []
+
             for k, f in enumerate(figures):
-                f.savefig(os.path.join(_dir_export, filename+'_Fig'+str(k)+'.pdf'))
-
-
+                export['FIG'].append(os.path.join(_dir_export, filename+'_Fig'+str(k)+'.pdf'))
+                f.savefig(export['FIG'][-1])
+        return export
     return res
 
 def importFits(fitsname, runSPIPS=False):
@@ -3203,9 +3401,9 @@ def datasetPhaseCoverageQuality(obs):
         wl = np.array([photfilt2.effWavelength_um(o[2]) for o in mags])
         Nvis += np.sum(wl<1.0)
         Nir  += np.sum(wl>=1.0)
+    # -- colors constrain more Teff than radius, just like vis photometry
     Nvis += np.sum(['color' in o[1].split(';') and o[-1]>0 for o in obs])
-    #print Nvrad, Nvis, Nir, Ninterf, Nteff
-    return qualityFuntion(Nvrad, Nvis, Nir, Ninterf, Nteff)
+    return qualityPhaseFuntion(Nvrad, Nvis, Nir, Ninterf, Nteff)
 
 def qualityPhaseCoverage(Nvrad=0, Nvis=0, Nir=0, Ninterf=0, Nteff=0):
     """
