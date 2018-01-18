@@ -545,7 +545,7 @@ def fit2html(f, root='spips', directory='./', makePlots=True):
     fi.close()
 
     # -- param+corr page
-    filename3 = root+'_main.html'
+    filename3 = 'index.html'
     fi = open(os.path.join(directory, filename3), 'w')
 
     page = """
@@ -836,9 +836,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     }
 
     Note about redenning: the redenning is corrected using a law for ISM
-
-
-
     """
     global phaseOffset
 
@@ -848,7 +845,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     minTeff = 4000.
     maxLogg = 5.0
     minLogg = 0.0
-
 
     # compute Vpuls and angular diam for regular padded points
     # get control points and duplicate them to get from phi=-1 to phi=+2
@@ -2677,6 +2673,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                 'data med':[], 'data Q1':[], 'data Q3':[], 'err':[], 'sign':[]}
 
     for i, filt in enumerate(list_filt):
+        # -- for each filter
         if plot:
             if test1plot:
                 ax = plt.subplot((len(list_filt)+len(list_color)+showLum)/__np+__op, 4, subplot)
@@ -2783,6 +2780,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         fits_data['MAG '+filt] = np.interp(fits_data['PHASE'], xmo, np.array(modl))
         fits_model['AVG_MAG '+filt] = round(modl.mean(), 3)
         fits_model['ABS_MAG_DERED '+filt] = round(np.mean(modl-_red)-5*np.log10(a['d_kpc']/0.01), 3)
+        fits_model['IR EXCESS '+filt] = irex
 
         # -- find outliers:
         w__ = np.where(np.array([np.abs(data[k]-res[k]) for k in w[0]]) >
@@ -2950,27 +2948,26 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
             modl[-1] += _red
 
             if not f_excess is None:
-                modl[-1] -= f_excess(wl0)
-                modl[-1] += f_excess(wl1)
+                irex = f_excess(wl0) - f_excess(wl1)
             else:
+                irex = 0
                 if np.abs(wl0-3.5)<0.5/2:
-                    modl[-1] -= l_excess
+                    irex += l_excess
                 if np.abs(wl1-3.5)<0.5/2:
-                    modl[-1] += l_excess
+                    irex -= l_excess
                 if np.abs(wl0-2.2)<0.3/2:
-                    modl[-1] -= k_excess
+                    irex += k_excess
                 if np.abs(wl1-2.2)<0.3/2:
-                    modl[-1] += k_excess
+                    irex -= k_excess
                 if np.abs(wl0-1.6)<0.3/2:
-                    modl[-1] -= h_excess
+                    irex += h_excess
                 if np.abs(wl1-1.6)<0.3/2:
-                    modl[-1] += h_excess
+                    irex -= h_excess
                 if np.abs(wl0-1.26)<0.3/2:
-                    modl[-1] -= j_excess
+                    irex += j_excess
                 if np.abs(wl1-1.26)<0.3/2:
-                    modl[-1] += j_excess
-
-
+                    irex -= j_excess
+            modl[-1] -= irex
             modl[-1] = float(modl[-1]) # something nasty is going on...
         modl = np.array(modl)
         if any(['dMAG ' in k for k in a.keys()]):
@@ -2983,7 +2980,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         fits_data['COLOR '+filt] = np.interp(fits_data['PHASE'], xmo, np.array(modl))
         fits_model['AVG_COLOR '+filt] = round(modl.mean(), 3)
         fits_model['AVG_COLOR_DERED '+filt] = round(np.mean(modl-_red), 3)
-
+        fits_model['IR EXCESS '+filt] = irex
         # -- find outliers:
         w__ = np.where(np.array([np.abs(data[k]-res[k]) for k in w[0]])>3.*np.array([edata[k] for k in w[0]]))
         if len(w__[0])>0 and showOutliers:
@@ -3383,7 +3380,7 @@ def importFits(fitsname, runSPIPS=False):
                         tmp.append(x)
         tmp.append(f['DATA'].data['MEAS'][k]) # measurement
         tmp.append(f['DATA'].data['ERR'][k]) # error
-        obs.append(tuple(tmp))
+        obs.append(list(tmp))
     f.close()
     if runSPIPS:
         model(obs, a, plot=True, starName=starName, verbose=True)
