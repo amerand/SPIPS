@@ -172,9 +172,16 @@ for c in col5:
     nei5[c] = np.array(nei5[c])
 
 # -- Load the LD/Ross sent by Hilding, where LD is the outer diameter
-f = open(os.path.join(_data_dir, 'LD_NEILSON', 'Rosseland_SATLAS.dat.txt'))
 cols = ['mass', 'L', 'Teff', 'logg', 'Ross', 'Outer', 'Ross/Outer']
 rossTable = {k:[] for k in cols}
+f = open(os.path.join(_data_dir, 'LD_NEILSON', 'Rosseland_SATLAS.dat'))
+for l in f.readlines():
+    if not l.strip().startswith('#'):
+        for i,c in enumerate(cols):
+            rossTable[c].append(float(l.split()[i]))
+f.close()
+f = open(os.path.join(_data_dir, 'LD_NEILSON', 'Rosseland_SATLAS_dwarfs.dat'))
+cols = ['mass', 'L', 'Teff', 'logg', 'Ross/Outer']
 for l in f.readlines():
     if not l.strip().startswith('#'):
         for i,c in enumerate(cols):
@@ -629,8 +636,8 @@ def _udld(filename, plot=False, planar=False, showNeilson=False, reslim=0.05):
             ax4r.plot(x2, 1e4*(V2-alpha['model']), color=colors[b],)
             _r = np.linspace(0.95, 1.0, 100)
             _mu = np.sqrt(1-_r**2)
-            ax1.plot(_r*alpha['best']['diam'], _mu**alpha['best']['alpha'],
-                color=colors[b],linestyle='dotted')
+            #ax1.plot(_r*alpha['best']['diam'], _mu**alpha['best']['alpha'],
+            #    color=colors[b], linestyle='dotted')
 
     if plot:
         if not ax0 is None:

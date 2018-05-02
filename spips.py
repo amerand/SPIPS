@@ -419,8 +419,8 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
             f.flush()
             f.close()
             directory = fit['export']['FITS'].split('.fits')[0].upper()
-            fit2html(fit,
-                    fit['export']['FITS'].split('.fits')[0].lower(),
+            print 'EXPORT DIRECTORY:', directory
+            fit2html(fit, fit['export']['FITS'].split('.fits')[0].lower(),
                     directory)
             os.rename(fit['export']['FITS'],
                         os.path.join(directory, os.path.basename(fit['export']['FITS'])))
@@ -455,7 +455,7 @@ def fit2html(f, root='spips', directory='./', makePlots=True):
     fi.write('</br>\n')
     fi.write('<hr>\n')
     for k in keys:
-        if f['uncer'][k]>0:
+        if k in f['uncer'].keys() and f['uncer'][k]>0:
             n = int(np.ceil(-np.log10(f['uncer'][k]))+1)
             fmt = "<b>'%s': %."+str(n)+'f, # +/- %.'+str(n)+'f </b>'
             fi.write(fmt%(k, f['best'][k], f['uncer'][k])+'</br>\n')
@@ -2847,29 +2847,30 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                 wi = np.where([not np.isnan(phi[k]) for k in w[0][_w]])
                 axsbr.plot(iTeff(phi[w][_w][wi]), [data[k]+5*np.log10(iDiam(phi[k])) for k in w[0][_w][wi]], 'o')
 
-            if not f_excess is None and f_excess(wl0)>0.01:
+            if not f_excess is None: #and f_excess(wl0)>0.01:
                 plt.plot(xmo, np.array(modl)+f_excess(wl0), color=colorModel,
                          linewidth=1.5, linestyle='dashed',
                          label='no CSE', alpha=0.5)
             else:
                 ### K,H excess
                 if l_excess!=0 and np.abs(wl0-3.5)<=0.5/2:
-                    print '--- I SHOULD NOT PASS HERE!?! ---'
+                    print '--- I SHOULD NOT PASS HERE: L ---'
                     plt.plot(xmo, np.array(modl)+l_excess, color=colorModel,
                              linewidth=1.5, linestyle='dashed',
                              label='no CSE', alpha=0.5)
                 if k_excess!=0 and np.abs(wl0-2.2)<=0.3/2:
-                    print '--- I SHOULD NOT PASS HERE!?! ---'
+                    print '--- I SHOULD NOT PASS HERE: K ---'
+                    print f_excess
                     plt.plot(xmo, np.array(modl)+k_excess, color=colorModel,
                              linewidth=1.5, linestyle='dashed',
                              label='no CSE', alpha=0.5)
                 if h_excess!=0 and np.abs(wl0-1.6)<=0.3/2:
-                    print '--- I SHOULD NOT PASS HERE!?! ---'
+                    print '--- I SHOULD NOT PASS HERE: H ---'
                     plt.plot(xmo, np.array(modl)+h_excess, color=colorModel,
                              linewidth=1.5, linestyle='dashed',
                              label='no CSE', alpha=0.5)
                 if j_excess!=0 and np.abs(wl0-1.26)<=0.3/2:
-                    print '--- I SHOULD NOT PASS HERE!?! ---'
+                    print '--- I SHOULD NOT PASS HERE: J ---'
                     plt.plot(xmo, np.array(modl)+j_excess, color=colorModel,
                               linewidth=1.5, linestyle='dashed',
                               label='no CSE', alpha=0.5)
@@ -3339,6 +3340,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
             for k, f in enumerate(figures):
                 export['FIG'].append(os.path.join(_dir_export, filename+'_Fig'+str(k)+'.pdf'))
                 f.savefig(export['FIG'][-1])
+        print 'Done exporting'
         return export
     return res
 
@@ -3400,7 +3402,7 @@ def datasetPhaseCoverageQuality(obs):
         Nir  += np.sum(wl>=1.0)
     # -- colors constrain more Teff than radius, just like vis photometry
     Nvis += np.sum(['color' in o[1].split(';') and o[-1]>0 for o in obs])
-    return qualityPhaseFuntion(Nvrad, Nvis, Nir, Ninterf, Nteff)
+    return qualityPhaseCoverage(Nvrad, Nvis, Nir, Ninterf, Nteff)
 
 def qualityPhaseCoverage(Nvrad=0, Nvis=0, Nir=0, Ninterf=0, Nteff=0):
     """
@@ -3548,7 +3550,8 @@ def computePhaseOffset(obs, a, deltaMJD=1000., mjds=None):
     if mjds is None:
         mjds = np.linspace(mjd_min, mjd_max, int((mjd_max-mjd_min)/deltaMJD))
 
-    dP = a['PERIOD']*np.linspace(-.5, .5, 50)
+    # -- does not cover full period range!
+    dP = a['PERIOD']*np.linspace(-.3, .3, 30)
 
     dphi = []
     for i in range(len(mjds)-1):
@@ -3790,7 +3793,8 @@ def photometrySED(diam, teff, filtname, metal=0.0, plot=False, Nwl=100,
     T = photfilt2.Transmission(filtname)(wl) # includes earth atmo is needed
 
     # -- photon counting!
-    if photfilt2.effWavelength_um(filtname)<3.:
+    if photfilt2.effWavelength_um(filtname)<3. and not 'GAIA' in filtname:
+        # -- already done for GAIA
         T *= wl
 
     # -- stellar spectrum
@@ -3802,10 +3806,10 @@ def photometrySED(diam, teff, filtname, metal=0.0, plot=False, Nwl=100,
         F = phoenix2.flambda(wl*n_air_P_T(wl), teff, logg)
 
     # -- facilities in space or which already took into account atmo
-    # space = ['IRAS', 'Spitzer', 'Hipparcos', '2MASS', 'DENIS', 'TYCHO',
-    #         'TESS', 'GAIA', 'DIRBE']
-    # if not any([s.lower() in filtname.lower() for s in space]):
-    #     F *= photfilt2._atmoTrans(wl)
+    space = ['IRAS', 'Spitzer', 'Hipparcos', '2MASS', 'DENIS', 'TYCHO',
+            'TESS', 'GAIA', 'DIRBE' , 'MSX', 'AKARI']
+    if not any([s.lower() in filtname.lower() for s in space]):
+        F *= photfilt2._atmoTrans(wl)
 
     # -- integrated
     iF = np.trapz(F*T, wl)/np.trapz(T, wl)
