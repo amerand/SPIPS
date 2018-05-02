@@ -456,7 +456,7 @@ def fit2html(f, root='spips', directory='./', makePlots=True):
     fi.write('<hr>\n')
     for k in keys:
         if k in f['uncer'].keys() and f['uncer'][k]>0:
-            n = int(np.ceil(-np.log10(f['uncer'][k]))+1)
+            n = max(int(np.ceil(-np.log10(f['uncer'][k]))+1), 0)
             fmt = "<b>'%s': %."+str(n)+'f, # +/- %.'+str(n)+'f </b>'
             fi.write(fmt%(k, f['best'][k], f['uncer'][k])+'</br>\n')
         else:
@@ -3600,14 +3600,14 @@ def phaseFunc(mjd, p, vgamma=0.0):
         __period = p['PERIOD']*np.ones(len(mjd))
     if p.has_key('PERIOD1'): # in s/year
         __period += (__mjd_mjd0)*p['PERIOD1']/(24*3600*365.25)
-    if p.has_key('PERIOD2'):
-        __period += ((__mjd_mjd0)/1e4)**2*p['PERIOD2']
-    if p.has_key('PERIOD3'):
-        __period += ((__mjd_mjd0)/1e4)**3*p['PERIOD3']
-    if p.has_key('PERIOD4'):
-        __period += ((__mjd_mjd0)/1e4)**4*p['PERIOD4']
-    if p.has_key('PERIOD5'):
-        __period += ((__mjd_mjd0)/1e4)**5*p['PERIOD5']
+
+    px = filter(lambda x: x.startswith('PERIOD') and
+                x!='PERIOD' and x!='PERIOD1', p.keys())
+    if len(px)>0:
+        for k in px:
+            x = float(k.split('PERIOD')[1])
+            __period += ((__mjd_mjd0)/1e4)**x*p[k]
+
 
     # -- check for keys: "PERIOD MJDx", "PERIOD VALx"
     # -- for piecewise lineate interpolations
@@ -3805,11 +3805,6 @@ def photometrySED(diam, teff, filtname, metal=0.0, plot=False, Nwl=100,
     elif __SEDmodel=='phoenix2':
         F = phoenix2.flambda(wl*n_air_P_T(wl), teff, logg)
 
-    # -- facilities in space or which already took into account atmo
-    space = ['IRAS', 'Spitzer', 'Hipparcos', '2MASS', 'DENIS', 'TYCHO',
-            'TESS', 'GAIA', 'DIRBE' , 'MSX', 'AKARI']
-    if not any([s.lower() in filtname.lower() for s in space]):
-        F *= photfilt2._atmoTrans(wl)
 
     # -- integrated
     iF = np.trapz(F*T, wl)/np.trapz(T, wl)
