@@ -194,7 +194,7 @@ def Transmission(filtname, withAtmo='auto'):
     if withAtmo == 'auto':
         # -- facilities in space or which already took into account atmo
         space = ['IRAS', 'Spitzer', 'Hipparcos', '2MASS', 'DENIS', 'TYCHO',
-                'TESS', 'GAIA', 'MSX', 'Akari', 'DIRBE']
+                'TESS', 'GAIA', 'MSX', 'AKARI', 'DIRBE', 'HST']
         withAtmo = not any([s.lower() in filtname.lower() for s in space])
 
     if withAtmo:

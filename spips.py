@@ -176,7 +176,7 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
         if verbose:
             print '='*3, 'normalizing error bars', '='*3
         for o in obs:
-            if 'color' in o[1] or 'mag' in o[1] or 'flux' in o[1]:
+            if 'color' in o[1] or o[1].startswith('mag') in o[1] or 'flux' in o[1]:
                 # -- ignore different sources:
                 #types.append(o[1].split(';')[0]+o[2])
                 # -- differentiate different sources:
@@ -205,6 +205,8 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
                 print '%-45s -> *= %5.3f'%(t, norma)
             for i in w[0]:
                 errs[i] *= norma
+
+    #print('DEBUG:', len(types), len(obs))
 
     if normalizeErrors=='techniques':
         # -- 2nd stage of normalization, by techniques:
@@ -298,7 +300,7 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
                 # -- list all famillies of observable
                 types = []
                 for o in obsp:
-                    if 'color' in o[1] or 'mag' in o[1] or 'flux' in o[1]:
+                    if 'color' in o[1] or o[1].startswith('mag') or 'flux' in o[1]:
                         # -- ignore different sources:
                         #types.append(o[1].split(';')[0]+o[2])
                         # -- differentiate different sources:
@@ -1486,7 +1488,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                         np.cos(2*np.pi*k*phi_intern + a['LUM PHI'+str(k)])
             Teff = C_Teffsol*(Lum/(linRadius/C_Rsol)**2)**(0.25)
 
-
     if 'LUM SLOPE' in a.keys(): # assumes at minimum LUM A0 was set
         _v = (Vpuls-Vgamma)
         origTeff = Teff.copy()
@@ -1594,7 +1595,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                     11100, 15200, 17600, 30000, 35000]
             r0 = np.interp(np.abs(a['COMP TEFF']), __t, __r)
             COMP_DIAM = r0*iDiam(np.linspace(0,1,100)).mean()/\
-                    (linRadius.mean()/C_Rsol)
+                       (linRadius.mean()/C_Rsol)
             if verbose:
                 print 'companion radius (main sequence):', round(r0, 3), 'Rsol'
                 print 'companion angular diameter:', round(COMP_DIAM,4), 'mas'
@@ -1731,7 +1732,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                     else:
                         _res /= 10**(Albda/2.5)
                     return _res
-
                 if np.isnan(phi[k]) :
                     wei = 1.
                     # -- unknown phase: can be any phase
@@ -1745,11 +1745,39 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                         res.append(wei*obs[-2]+(1-wei)*np.mean(_y))
                 else:
                     res.append(_tmp(phi[k]))
-
                 #-- keep a list of all filters encoutered
                 if not ('_' if _jy else '')+obs[2] in list_filt:
                     list_filt.append(('_' if _jy else '')+obs[2])
+            #--
+            elif obs[1].split(';')[0]=='avgmag' or obs[1].split(';')[0]=='avgflux':
+                _jy = obs[1].split(';')[0]=='avgflux'
+                def _tmp(x):
+                    _res = photometrySED([phot_corr*iDiam(x), COMP_DIAM],
+                                          [iTeff(x), COMP_TEFF],
+                                          obs[2], metal=a['METAL'],
+                                          logg=[ilogg_m(x), COMP_LOGG], jy=_jy)[0][0]
+                    wl = photfilt2.effWavelength_um(obs[2])
+                    if not f_excess is None:
+                        if not _jy:
+                            _res -= f_excess(wl)
+                        else:
+                            _res *= 10**(f_excess(wl)/2.5)
 
+                    if __monochromaticAlambda:
+                        Albda = Alambda_Exctinction(wl, EB_V=a['E(B-V)'], Rv=Rv)
+                    else:
+                        Albda = Alambda_Exctinction(obs[2], EB_V=a['E(B-V)'],
+                                                       Rv=Rv, Teff=iTeff(x))
+                    if not _jy:
+                        _res += Albda
+                    else:
+                        _res /= 10**(Albda/2.5)
+                    return _res
+                # -- average magnitude
+                res.append(np.mean([_tmp(_x) for _x in np.linspace(0,1,101)[:-1]]))
+                #-- keep a list of all filters encoutered
+                if not ('_' if _jy else '')+obs[2] in list_filt:
+                   list_filt.append(('_' if _jy else '')+obs[2])
             elif obs[1].split(';')[0]=='color':
                 res.append(photometrySED([iDiam(phi[k]), COMP_DIAM],
                                             [iTeff(phi[k]), COMP_TEFF],
@@ -1789,11 +1817,11 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                 if 'dMAG ' in k:
                     #print k
                     for i,o in enumerate(x):
-                       if 'mag' in o[1] and o[2] in k:
+                       if 'mag' in o[1].split(';')[0] and o[2] in k:
                            res[i] += a[k]
-                       elif 'color' in o[1] and o[2].split('-')[0] in k:
+                       elif 'color' in o[1].split(';')[0] and o[2].split('-')[0] in k:
                            res[i] += a[k]
-                       elif 'color' in o[1] and o[2].split('-')[1] in k:
+                       elif 'color' in o[1].split(';')[0] and o[2].split('-')[1] in k:
                            res[i] -= a[k]
         if not all(np.isfinite(res)):
             print "WARNING! nan or infinites detected in model's result",
@@ -1805,7 +1833,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     list_flux = []
     list_color = []
     for k, obs in enumerate(x):
-        if obs[1].split(';')[0]=='mag':
+        if 'mag' in obs[1].split(';')[0]:# or obs[1].split(';')[0]=='avgmag':
             if not obs[2] in list_filt:
                 list_filt.append(obs[2])
         if obs[1].split(';')[0]=='flux':
@@ -1845,7 +1873,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                   Alambda_Exctinction(l, EB_V=1.0, Rv=Rv, Teff=5500),
                   Alambda_Exctinction(l, EB_V=1.0, Rv=Rv, Teff=6500))
         if verbose:
-            print ' %-18s  %6.3f[um] %5.4e[W/m2/um] Al=%5.3f, %5.3f, %5.3f Mag=%6.3f, %6.3f, %6.3f'%(l,
+            print ' %-20s  %6.3f[um] %5.4e[W/m2/um] Al=%5.3f, %5.3f, %5.3f Mag=%6.3f, %6.3f, %6.3f'%(l,
                 photfilt2.effWavelength_um(l), photfilt2.zeroPoint_Wm2um(l),
                 al[0], al[1], al[2],
                 photometrySED(1.0, 4500.0, l, logg=1.5, metal=a['METAL']),
@@ -1867,7 +1895,9 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     if verbose:
          print '-'*20, 'Computing observables on multi-cores:', '-'*20
     res = modelM(x, a, maxCores=maxCores) # much faster (multi processor)
-
+    # for i in range(len(x)):
+    #     print x[i], res[i]
+    # return
     chi2 = 0.0
     for k in range(len(res)):
         tmp = (res[k] - x[k][-2])**2/x[k][-1]**2
@@ -1968,7 +1998,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
             plt.text(x0, plt.ylim()[0]+0.02*(plt.ylim()[1]-plt.ylim()[0]),
                   r'$\circled{'+chr(uni)+'}$', va='bottom', ha='left', fontweight='bold',
                   fontsize=25, color='0.2')
-
         return uni+1
 
     if plot:
@@ -2824,18 +2853,27 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                             plt.plot(phi[w][_w][wi]+df, [data[k] for k in w[0][_w][wi]],
                                 linestyle='none', markersize=3, color=color,
                                 marker='x', alpha=0.5, label=s+' ignored' if df==0 else '')
-                # -- case no phase/mjd was given
+                # -- case no phase/mjd was given or avg
                 wi = np.where([np.isnan(phi[k]) for k in w[0][_w]])
                 if len(wi[0]):
                     for k in np.arange(len(data))[w][_w][wi]:
+                        if 'avgmag' in types[k]:
+                            __c = 'g'
+                        else:
+                            __c = color
                         plt.fill_between([-0.5,1.5], data[k]-edata[k]*np.array([1,1]),
                                     data[k]+edata[k]*np.array([1,1]),
-                                    color='orange' if edata[k]<=0 else color ,
+                                    color='r' if edata[k]<=0 else __c ,
                                     alpha=0.2, #hatch='x' if edata[k]<0 else None,
                                     label=s+' ignored' if edata[k]<=0 else '')
-            ### models
+            # -- plot models ------------------------------------
             plt.plot(xmo, modl, color=colorModel, linewidth=2, alpha=0.5,
                     label='model')
+            # -- plot avergage
+            if 'avgmag' in types[w]:
+                plt.plot(xmo, np.zeros(len(xmo))+np.mean(modl), color='g',
+                        linewidth=2, alpha=0.5, linestyle='dotted')
+
             if splitDTeffects:
                 plt.plot(xmo, np.array(modlT), color='y', linewidth=1, alpha=0.8,
                         linestyle='dotted', label=r'$\Delta$R=0')
@@ -2874,7 +2912,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                     plt.plot(xmo, np.array(modl)+j_excess, color=colorModel,
                               linewidth=1.5, linestyle='dashed',
                               label='no CSE', alpha=0.5)
-            plt.legend(loc='upper left', prop={'size':9}, numpoints=1,
+            plt.legend(loc='upper left', prop={'size':7}, numpoints=1,
                         frameon=False)
 
             y_min = min(min(modl), np.min([data[k]-0*edata[k] for k in w[0]]))
@@ -2887,7 +2925,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
             uni = labelPanel(uni)
             plt.text(1.05, plt.ylim()[1]-0.05*(plt.ylim()[1]-plt.ylim()[0]),
                      r'$\chi^2=$%4.2f'%chi2, va='top', ha='right',
-                     size=10)
+                     size=7)
             _y = ax.get_yticks()
             if len(_y>7):
                 ax.set_yticks(_y[1:-1][::2])
@@ -2926,7 +2964,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         modl = []
         wl = 0.5*(photfilt2.effWavelength_um(filt.split('-')[0])+
                   photfilt2.effWavelength_um(filt.split('-')[1]))
-        xmo = np.linspace(-0.5,1.5,100)[:-1]
+        xmo = np.linspace(-0.5,1.5,100)[:-1] # average
         for x_ in xmo: # for each phase of the model
             modl.append(photometrySED([iDiam(x_), COMP_DIAM],
                                          [iTeff(x_), COMP_TEFF],
@@ -3051,7 +3089,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                 plt.plot(xmo, np.array(modl)+e, color=colorModel,
                          linewidth=1.5, linestyle='dashed',
                          label='no CSE', alpha=0.5)
-            plt.legend(loc='upper left', prop={'size':9}, numpoints=1,
+            plt.legend(loc='upper left', prop={'size':7}, numpoints=1,
                        frameon=False)
 
             y_min = min(min(modl), np.min([data[k]-0*edata[k] for k in w[0]]))
@@ -3065,7 +3103,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
             uni = labelPanel(uni)
             plt.text(1.05, plt.ylim()[1]-0.05*(plt.ylim()[1]-plt.ylim()[0]),
                      r'$\chi^2=$%4.2f'%chi2, va='top', ha='right',
-                     size=10)
+                     size=7)
             _y = ax.get_yticks()
             if len(_y>7):
                 ax.set_yticks(_y[1:-1][::2])
@@ -3171,7 +3209,39 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     print '-'*(n+12)
     print form%allChi2[0]
     print form%allChi2[-1]
-    print 'number of data points:', len(x)
+    # -- residuals
+    allTypes = [o[1] if not (o[1].startswith('mag') or 'color' in o[1]) else o[1]+';'+o[2] for o in x]
+    types = sorted(list(set(allTypes)))
+    N = max([len(t) for t in types])
+    print '-'*6, 'Residuals (mean, std)', '-'*(N+2)
+    Y = np.array([o[-2] for o in x])
+    eY = np.array([o[-1] for o in x])
+    for k in types:
+        if k.startswith('teff'):
+            format = '%-'+str(N+1)+'s: %s%6.2f\033[0m +- %5.2f, err~%s%5.2f\033[0m'
+        else:
+            format = '%-'+str(N+1)+'s: %s%6.3f\033[0m +- %5.3f, err~%s%5.3f\033[0m'
+        w = np.where(np.array(allTypes)==k)
+        resi = Y[w] - np.array(res)[w]
+        # -- first color: comparing avg and std Residuals
+        if np.abs(np.mean(resi))>3*np.std(resi):
+            c1 = '\033[41m' # red
+        elif np.abs(np.mean(resi))>1.5*np.std(resi):
+            c1 = '\033[43m' # yellow
+        else:
+            c1 = '\033[0m'
+        # -- second color: errors are over/under estimated?
+        if np.abs(np.mean(eY[w]))<np.std(resi)/2.5:
+            c2 = '\033[41m' # red
+        elif np.abs(np.mean(eY[w]))<np.std(resi)/1.5:
+            c2 = '\033[43m' # yellow
+        elif np.abs(np.mean(eY[w]))>np.std(resi)*2:
+            c2 = '\033[44m' # blue
+        else:
+            c2 = '\033[0m'
+        print format%(k, c1, np.mean(resi), np.std(resi),
+                     c2, np.abs(np.mean(eY[w])))
+    print '-'*(N+31)
 
     if 'PERIOD1' in a.keys():
         mjd = np.array([o[0] if not o[0] is None else np.nan for o in x])
@@ -3733,6 +3803,22 @@ def _make_photometryGrid(filtname, teff=None, logg=None, metal=None):
             'logg':logg,
             'metal':metal}
 
+def _showMagGrid(bands):
+    """
+    """
+    print '# magnitude for a 1mas angular diameter star,',
+    print 'Solar metalicity, logg=1.5'
+    if isinstance(bands, str):
+        bands = [bands]
+    n = max([len(b) for b in bands])
+    fmts = '%'+str(n)+'s'
+    fmtn = '%'+str(n)+'.3f'
+    print '#Teff  '+' '.join([fmts%b for b in bands])
+    for i,t in enumerate(__MAGgrid[bands[0]]['teff']):
+        print '%4.0f'%t,
+        print ' '.join([fmtn%__MAGgrid[b]['mag'][i,3,2] for b in bands])
+
+
 def _makeAll_photometryGrid():
     res = {}
     global __SEDmodel # tell which grid of model to use
@@ -3880,7 +3966,7 @@ def testColors():
     Compare colors computed from ATLAS9 models and the tabulation found in
     Astrophysical Quantities
     """
-
+    import atlas9
     # -- Table 15.7 in Astrophysical quantities:
     _T = [4310, 4550, 4700, 4930, 5190, 5370, 5750, 6360,
           7030, 7460, 8610, 9380, 9980, 11100, 13600]
@@ -3916,58 +4002,59 @@ def testColors():
     teff = teff[teff>=np.min(_T)-500]
     teff = teff[teff<=np.max(_T)+500]
 
-    U = np.array([photometrySED(1.0, t, 'U_JOHNSON',
+    U = np.array([photometrySED(1.0, t, 'U_Johnson',
                  logg=1.5, useGrid=True)[0] for t in teff])
-    B = np.array([photometrySED(1.0, t, 'B_JOHNSON',
+    B = np.array([photometrySED(1.0, t, 'B_Johnson',
                  logg=1.5, useGrid=True)[0] for t in teff])
-    V = np.array([photometrySED(1.0, t, 'V_JOHNSON',
+    V = np.array([photometrySED(1.0, t, 'V_Johnson',
                  logg=1.5, useGrid=True)[0] for t in teff])
-    R = np.array([photometrySED(1.0, t, 'R_JOHNSON',
+    R = np.array([photometrySED(1.0, t, 'R_Johnson',
                  logg=1.5, useGrid=True)[0] for t in teff])
-    J = np.array([photometrySED(1.0, t, 'J_CTIO',
+    J = np.array([photometrySED(1.0, t, 'J_CTIO_ANDICAM',
                  logg=1.5, useGrid=True)[0] for t in teff])
-    H = np.array([photometrySED(1.0, t, 'H_CTIO',
+    H = np.array([photometrySED(1.0, t, 'H_CTIO_ANDICAM',
                  logg=1.5, useGrid=True)[0] for t in teff])
-    K = np.array([photometrySED(1.0, t, 'K_CTIO',
+    K = np.array([photometrySED(1.0, t, 'K_CTIO_ANDICAM',
                  logg=1.5, useGrid=True)[0] for t in teff])
 
     plt.figure(0)
     plt.clf()
     ax0 = plt.subplot(231)
-    plt.plot(teff, U - B, '-oc', label='U-B (ATLAS9)', alpha=0.5)
+    plt.plot(teff, U - B, 'oc', label='U-B (ATLAS9)', alpha=0.5)
     plt.plot(_T, U_B, '-cv', linewidth=3, label='U-B (Astr. Q)')
     plt.legend()
     plt.xlabel('Teff')
 
     plt.subplot(232, sharex=ax0)
-    plt.plot(teff, B - V, '-ob', label='B-V (ATLAS9)', alpha=0.5)
+    plt.plot(teff, B - V, 'ob', label='B-V (ATLAS9)', alpha=0.5)
     plt.plot(_T, B_V, '-bv', linewidth=3, label='B-V (Astr. Q)')
     plt.legend()
     plt.xlabel('Teff')
 
     plt.subplot(233, sharex=ax0)
-    plt.plot(teff, V - R, '-o', color='g', label='V-R (ATLAS9)', alpha=0.5)
+    plt.plot(teff, V - R, 'o', color='g', label='V-R (ATLAS9)', alpha=0.5)
     plt.plot(_T, V_R, '-v', color='g', linewidth=3, label='V-R (Astr. Q)')
     plt.legend()
     plt.xlabel('Teff')
 
     plt.subplot(234, sharex=ax0)
-    plt.plot(teff, J - H, '-o', color='y', label='J-H (ATLAS9)', alpha=0.5)
+    plt.plot(teff, J - H, 'o', color='y', label='J-H (ATLAS9)', alpha=0.5)
     plt.plot(_T2, J_H, '-v', color='y', linewidth=3, label='J-H (Astr. Q)')
     plt.legend()
     plt.xlabel('Teff')
 
     plt.subplot(235, sharex=ax0)
-    plt.plot(teff, H - K, '-o', color='orange', label='H-K (ATLAS9)', alpha=0.5)
+    plt.plot(teff, H - K, 'o', color='orange', label='H-K (ATLAS9)', alpha=0.5)
     plt.plot(_T2, H_K, '-v', color='orange', linewidth=3, label='H-K (Astr. Q)')
     plt.legend()
     plt.xlabel('Teff')
 
     plt.subplot(236, sharex=ax0)
-    plt.plot(teff, V - K, '-o', color='r', label='V-K (ATLAS9)', alpha=0.5)
+    plt.plot(teff, V - K, 'o', color='r', label='V-K (ATLAS9)', alpha=0.5)
     plt.plot(_T2, V_K, '-v', color='r', linewidth=3, label='V-K (Astr. Q)')
     plt.legend()
     plt.xlabel('Teff')
+    plt.xlim(4500, 7500)
     return
 
 def allFilter():
@@ -4092,10 +4179,9 @@ K04 = {('B','V'):(-0.2944, 3.8813, 0.017),
        ('H','K'):(-2.3858, 4.0653, 0.029),
     }
 
-def allSBRelations(teffMin=4800., teffMax=7000., forceLin=False):
-    filters = ['B_GCPD', 'V_GCPD', 'R_GCPD', 'I_GCPD',
-                'J_CTIO', 'H_CTIO', 'K_CTIO']
-
+def allSBRelations(teffMin=4250., teffMax=6750., forceLin=False):
+    filters = ['B_Johnson', 'V_Johnson', 'R_Bessell', 'I_Bessell',
+                'J_CTIO_ANDICAM', 'H_CTIO_ANDICAM', 'K_CTIO_ANDICAM']
 
     # filters = ['B_MVB_TYCHO', 'V_MVB_TYCHO', 'R_JOHNSON',
     #         'I_JOHNSON', 'K_CTIO']
@@ -4171,7 +4257,6 @@ def SBRelation(filter1, filter2, teffMin=5000., teffMax=7000.,
 
 
     c = K04[(filter1[0], filter2[0])]
-    print c
     diamK04 = diamSB((mag1, mag2), {'a0':c[1], 'a1':c[0]} )
 
     if plot:
@@ -4191,6 +4276,7 @@ def SBRelation(filter1, filter2, teffMin=5000., teffMax=7000.,
         plt.ylim(-10,10)
     if verbose:
         print form
+    # -- best polynomial fit, residuals (peak-to-peak)
     return f['best'], ((diam-f['model'])/diam).ptp()
 
 def diamSB(mags, c):
