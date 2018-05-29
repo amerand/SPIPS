@@ -245,24 +245,40 @@ def UDLD(o, diam, Teff):
         B = 100.
         print 'warning, assumes B=100m for the UD/LD correction!'
     # --
-    key = ''
+    key0, key1 = '', None
     if 'fluor' in o[1].lower():
-        key = 'K'
+        key0 = 'K'
     if 'pti' in o[1].lower():
-        key = 'H'
+        key0 = 'H'
     if 'pionier' in o[1].lower():
         if 'free' in o[1].lower():
-            key = 'H' # -- assumed H, low spectral resolution
+            key0 = 'H' # -- assumed H, low spectral resolution
     if 'amber' in o[1].lower():
-        key = 'K' # assumes R=50, LR
+        key0 = 'K' # assumes R=50, LR
+    if 'gravity' in o[1].lower():
+        key0 = 'K'
 
-    if key=='':
-        bands = {0.45:'B', 0.55:'V', 0.65:'R', 1.0:'I',1.65:'H', 2.2:'K'}
-        key = bands[bands.keys()[np.argmin(np.abs(np.array(bands.keys())-wl))]]
-    # -- closest
-    t = _data.keys()[np.abs(np.array(_data.keys())-Teff).argmin()]
+    if key0=='': # -- could not find the instrument, use wavelength
+        bands = {0.45:'B', 0.55:'V', 0.65:'R', 1.0:'I', 1.65:'H', 2.2:'K'}
+        # -- closest band
+        wl0 = bands.keys()[np.argmin(np.abs(np.array(bands.keys())-wl))]
+        key0 = bands[wl0]
+        wl1 = bands.keys()[np.argsort(np.abs(np.array(bands.keys())-wl))[1]]
+        key1 = bands[wl1]
 
-    return UDLD_x(np.pi*B*diam/wl*(np.pi/(180*3600)*1e-6), _data[t][key])[0]
+    # -- interpolates in Teff:
+    t0 = _data.keys()[np.abs(np.array(_data.keys())-Teff).argmin()]
+    t1 = _data.keys()[np.abs(np.array(_data.keys())-Teff).argsort()[1]]
+    res0 = UDLD_x(np.pi*B*diam/wl*(np.pi/(180*3600)*1e-6), _data[t0][key0])[0]
+    res1 = UDLD_x(np.pi*B*diam/wl*(np.pi/(180*3600)*1e-6), _data[t1][key0])[0]
+    res = res0 + (Teff-t0)*(res1-res0)/(t1-t0)
+    if not key1 is None:
+        res0 = UDLD_x(np.pi*B*diam/wl*(np.pi/(180*3600)*1e-6), _data[t0][key1])[0]
+        res1 = UDLD_x(np.pi*B*diam/wl*(np.pi/(180*3600)*1e-6), _data[t1][key1])[0]
+        res1 = res0 + (Teff-t0)*(res1-res0)/(t1-t0)
+        res += (wl - wl0)*(res1-res)/(wl1 - wl0)
+
+    return res
 
 wl_b = {'B':0.45, 'V':0.55, 'R':0.65, 'I':1.0, 'H':1.65, 'K':2.2, 'CoR':0.1, 'Kep':0.1}
 band = {wl_b[c]:c for c in wl_b.keys()}

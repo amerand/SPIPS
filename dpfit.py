@@ -193,7 +193,7 @@ Ncalls=0
 def leastsqFit(func, x, params, y, err=None, fitOnly=None,
                verbose=False, doNotFit=[], epsfcn=1e-7,
                ftol=1e-5, fullOutput=True, normalizedUncer=True,
-               follow=None, maxfev=200):
+               follow=None, maxfev=200, showBest=True):
     """
     - params is a Dict containing the first guess.
 
@@ -312,25 +312,27 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
         format_ = "'%s':"
         # -- write each parameter and its best fit, as well as error
         # -- writes directly a dictionnary
-        print '' # leave some space to the eye
-        for ik,k in enumerate(tmp):
-            padding = ' '*(maxLength-len(k))
-            formatS = format_+padding
-            if ik==0:
-                formatS = '{'+formatS
-            if uncer[k]>0:
-                ndigit = -int(np.log10(uncer[k]))+3
-                print formatS%k , round(pfix[k], ndigit), ',',
-                print '# +/-', round(uncer[k], ndigit)
-            elif uncer[k]==0:
-                if isinstance(pfix[k], str):
-                    print formatS%k , "'"+pfix[k]+"'", ','
+        if showBest:
+            print '' # leave some space to the eye
+            for ik,k in enumerate(tmp):
+                padding = ' '*(maxLength-len(k))
+                formatS = format_+padding
+                if ik==0:
+                    formatS = '{'+formatS
+                if uncer[k]>0:
+                    ndigit = -int(np.log10(uncer[k]))+3
+                    print formatS%k , round(pfix[k], ndigit), ',',
+                    print '# +/-', round(uncer[k], ndigit)
+                elif uncer[k]==0:
+                    if isinstance(pfix[k], str):
+                        print formatS%k , "'"+pfix[k]+"'", ','
+                    else:
+                        print formatS%k , pfix[k], ','
                 else:
-                    print formatS%k , pfix[k], ','
-            else:
-                print formatS%k , pfix[k], ',',
-                print '# +/-', uncer[k]
-        print '}' # end of the dictionnary
+                    print formatS%k , pfix[k], ',',
+                    print '# +/-', uncer[k]
+            print '}' # end of the dictionnary
+        
         try:
             if verbose>1:
                 print '-'*3, 'correlations:', '-'*15

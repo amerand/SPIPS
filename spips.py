@@ -375,28 +375,45 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
             fit=dpfit.leastsqFit(model, obs, first_guess,
                                 [o[-2] for o in obs],
                                 err=errs, maxfev=maxfev,
-                                doNotFit=doNotFit,fitOnly=fitOnly,follow=follow,
-                                verbose=verbose, ftol=ftol, epsfcn=epsfcn)
+                                doNotFit=doNotFit,fitOnly=fitOnly, follow=follow,
+                                verbose=verbose, ftol=ftol, epsfcn=epsfcn, showBest=False)
 
         else:
             tmp = modelM(obs, first_guess, maxCores=maxCores)
             fit=dpfit.leastsqFit(modelM, obs, first_guess,
                                 [o[-2] for o in obs],
                                 err=errs, maxfev=maxfev,
-                                doNotFit=doNotFit,fitOnly=fitOnly,follow=follow,
-                                verbose=verbose, ftol=ftol, epsfcn=epsfcn)
-            # fit = dpfit2.minimize( modelM, obs, first_guess,
-            #             np.array([np.array(o[-2]) for o in obs]),
-            #             err=np.array(errs), doNotFit=doNotFit,
-            #             fitOnly=fitOnly, verbose=verbose)
+                                doNotFit=doNotFit,fitOnly=fitOnly, follow=follow,
+                                verbose=verbose, ftol=ftol, epsfcn=epsfcn, showBest=False)
         fit['options'] = {'maxfev':maxfev, 'ftol':ftol, 'epsfcn':epsfcn,
-                        'normalizeErrors':normalizeErrors,
-                        'first_guess':first_guess, 'doNotFit':doNotFit}
+                          'normalizeErrors':normalizeErrors,
+                          'first_guess':first_guess, 'doNotFit':doNotFit}
         fit['starName'] = starName
+        mod = model(allobs, fit['best'], plot=False, verbose=False, exportFits=False)
+
+        # -- phase==0 for maximum luminosity
+        print 'PHASE OFFSET:', phaseOffset
+        fit['best'] = dephaseParam(fit['best'], phaseOffset)
+        # -- show parameters, corrected for 0-phase
+        print '#'*5, '0-phase at max luminosity:', '#'*48
+        print '{'
+        keyz = sorted(fit['best'].keys())
+        S = max([len(k) for k in keyz])
+        for k in keyz:
+            _fmtS = "    '%s'"+' '*(S-len(k))+':'
+            if  fit['uncer'][k]>0:
+                N = int(np.ceil(-np.log10(fit['uncer'][k])))+2
+                _fmtN = '%.'+str(N)+'f, # +/- %.'+str(N)+'f'
+                print _fmtS%k, _fmtN%(fit['best'][k], fit['uncer'][k])
+            else:
+                print _fmtS%k, fit['best'][k], ','
+        print '}'
+        print '#'*80
 
         if plot or exportFits:
             mod = model(allobs, fit['best'], plot=plot, starName=starName,
-                  verbose=verbose, exportFits=exportFits)
+                        verbose=verbose, exportFits=exportFits)
+
         # -- if fits has been exported, edit file
 
         if exportFits:
@@ -1664,7 +1681,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                     elif _ldCoef=='SATLAS':
                         res.append(float(iDiam(phi[k])*
                                 ldsatlas.UDLD(obs, iDiam(phi[k]),
-                                                iTeff(phi[k]))))
+                                                   iTeff(phi[k]))))
                     else:
                         res.append(0.0)
                 except:
@@ -3743,23 +3760,29 @@ def dephaseParam(a, dphi):
     """
     dephase the model by dphi (0->1). This is usefull to phase the model so maximum luminosity is attained for phi==0
     """
+    a = cleanFourierCoef(a)
     a['MJD0'] -= dphi*a['PERIOD']
-    if any(['VPULS VAL' in x for x in a.keys()]):
+    if 'TEFF PHASE OFFSET' in a.keys():
+        a['TEFF PHASE OFFSET'] -= dphi
+
+    if any(['VPULS VAL' in x for x in a.keys()]) or any(['VRAD VAL' in x for x in a.keys()]):
         # -- VPULS in spline
         for k in a.keys():
-            if 'VPULS PHI' in k:
-                a[k] += dphi
+            if 'VPULS PHI' in k or 'VRAD PHI' in k:
+                a[k] = (a[k]+dphi)%1.0
+
     else:
         # -- VPULS in Fourier
         for k in a.keys():
-            if 'VPULS PHI' in k:
+            if 'VPULS PHI' in k or 'VRAD PHI' in k:
                 a[k] -= int(k.split('PHI')[1])*2*np.pi*dphi
                 a[k] = a[k]%(2*np.pi)
+
     if any(['TEFF VAL' in x for x in a.keys()]):
         # -- TEFF in spline
         for k in a.keys():
             if 'TEFF PHI' in k:
-                a[k] += dphi
+                a[k] = (a[k]+dphi)%1.0
     else:
         # -- TEFF in Fourier
         for k in a.keys():
