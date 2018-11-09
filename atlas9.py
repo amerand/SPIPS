@@ -46,7 +46,7 @@ except:
 
 _warnings=True
 
-def ReadAllFiles_Imu(directory, TeffMax=9000):
+def ReadAllFiles_Imu(directory, TeffMax=12000):
     """
     returns a dictionnary of interpolation function. Interpolation is
     FLAMBDA (erg/s/cm2/m/ster) as a function of wavelength (um). Keys
@@ -671,7 +671,7 @@ def flambda(wavel, teff, logg, metal=0.0, plot=False):
     else:
         return res
 
-def getAllFiles(directory='gridp00k2odfnew', table=None, TeffMax=9000, TeffMin=4000):
+def getAllFiles(directory='gridp00k2odfnew', table=None, TeffMax=12000, TeffMin=4000):
     global _dir_data
     url='http://wwwuser.oats.inaf.it/castelli/grids/'+directory+'/'
     if table is None:
@@ -779,7 +779,7 @@ except:
         if not useBOSZ:
             # -- read SEDs and add LD
             for d in atlas9__dir:
-                tmp = ReadAllFiles_Imu(d, TeffMax=10000)
+                tmp = ReadAllFiles_Imu(d, TeffMax=12000)
                 for t in tmp.keys():
                     models[t] = tmp[t]
             f = open(os.path.join(_dir_data,'ATLAS9', gridfile), 'wb')

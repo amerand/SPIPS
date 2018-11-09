@@ -13,6 +13,9 @@ import numpy as np
 import urllib2
 
 _dir = '../SPIPS/DATA/FILTERS' # will automatically loads all filters from there
+if not os.path.exists(_dir):
+    _dir = os.path.join(filter(lambda d: d.endswith('/SPIPS'), sys.path)[0], 'DATA/FILTERS/')
+
 
 if not os.path.isdir(_dir):
     import sys
@@ -173,7 +176,11 @@ def _atmoTrans(wl):
     try:
         n = len(_atmoData)
     except:
-        f = open('../SPIPS/DATA/ATMO/transmission_300_5000_pwv10.txt')
+        _ad = '../SPIPS/DATA/ATMO/'
+        if not os.path.exists(_ad):
+            _ad = os.path.join(filter(lambda d: d.endswith('/SPIPS'), sys.path)[0], 'DATA/ATMO/')
+
+        f = open(os.path.join(_ad, 'transmission_300_5000_pwv10.txt'))
         _atmoData = []
         for l in f.readlines():
             _atmoData.append([float(l.split()[0])/1000., float(l.split()[1])])

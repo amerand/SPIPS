@@ -113,7 +113,7 @@ def clean():
 def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, follow=None,
         N_monte_carlo=0, monte_carlo_method='randomize', ftol=1e-4, epsfcn=1e-7, plot=True,
         starName='', maxfev=0, normalizeErrors=False, maxCores=None, verbose=True,
-        exportFits=False):
+        exportFits=False, rephaseMaxLum=True):
     """
     perform a parallax of pulsation fit to the data 'obs'.
 
@@ -176,7 +176,7 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
         if verbose:
             print '='*3, 'normalizing error bars', '='*3
         for o in obs:
-            if 'color' in o[1] or o[1].startswith('mag') in o[1] or 'flux' in o[1]:
+            if 'color' in o[1] or o[1].startswith('mag') or 'flux' in o[1]:
                 # -- ignore different sources:
                 #types.append(o[1].split(';')[0]+o[2])
                 # -- differentiate different sources:
@@ -393,7 +393,8 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
 
         # -- phase==0 for maximum luminosity
         print 'PHASE OFFSET:', phaseOffset
-        fit['best'] = dephaseParam(fit['best'], phaseOffset)
+        if rephaseMaxLum:
+            fit['best'] = dephaseParam(fit['best'], phaseOffset)
         # -- show parameters, corrected for 0-phase
         print '#'*5, '0-phase at max luminosity:', '#'*48
         print '{'
@@ -404,7 +405,10 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
             if  fit['uncer'][k]>0:
                 N = int(np.ceil(-np.log10(fit['uncer'][k])))+2
                 _fmtN = '%.'+str(N)+'f, # +/- %.'+str(N)+'f'
-                print _fmtS%k, _fmtN%(fit['best'][k], fit['uncer'][k])
+                try:
+                    print _fmtS%k, _fmtN%(fit['best'][k], fit['uncer'][k])
+                except:
+                    print _fmtS%k, fit['best'][k], ','
             else:
                 print _fmtS%k, fit['best'][k], ','
         print '}'
@@ -478,6 +482,7 @@ def fit2html(f, root='spips', directory='./', makePlots=True):
             n = max(int(np.ceil(-np.log10(f['uncer'][k]))+1), 0)
             fmt = "<b>'%s': %."+str(n)+'f, # +/- %.'+str(n)+'f </b>'
             fi.write(fmt%(k, f['best'][k], f['uncer'][k])+'</br>\n')
+
         else:
             fmt = "'%s': %s,"
             fi.write(fmt%(k, str(f['best'][k]))+'</br>\n')
@@ -878,6 +883,11 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
     else:
         teff_phase_offset = 0.0
 
+    if a.has_key('VRAD PHASE OFFSET'):
+        vrad_phase_offset = a['VRAD PHASE OFFSET']
+    else:
+        vrad_phase_offset = 0.0
+
     if a.has_key('PHOT CORR'):
         phot_corr = a['PHOT CORR']
     else:
@@ -1150,10 +1160,14 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
             _kind='cubic'
             fits_model['VRAD SPLINE KIND'] = 'cubic'
 
-        Vrad = interp1d(xpV, ypV, kind=_kind, fill_value=0.0,
-                          assume_sorted=True)(phi_intern)
         Vgamma = interp1d(xpV, ypV, kind=_kind, fill_value=0.0,
                           assume_sorted=True)(np.linspace(0,1,1000)[:-1]).mean()
+        Vrad = interp1d(xpV, ypV, kind=_kind, fill_value=0.0,
+                          assume_sorted=True)(phi_intern)
+        if 'VRAD AMP' in a.keys():
+            ypV = (ypV-Vgamma)*a['VRAD AMP'] + Vgamma
+            Vrad = interp1d(xpV, ypV, kind=_kind, fill_value=0.0,
+                              assume_sorted=True)(phi_intern)
 
         Vpuls = (Vrad-Vgamma)*a['P-FACTOR'] + Vgamma
 
@@ -1191,9 +1205,15 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
 
     # -- extract julian dates as the first value in the tuple
     mjd = np.array([obs[0] if not obs[0] is None else np.nan for obs in x])
-
     phi, Period = phaseFunc(mjd, a, vgamma=Vgamma)
-
+    # -- average
+    if np.sum(mjd[mjd>1]):
+        periodChangeRate = np.polyfit(mjd[mjd>1]-np.mean(mjd[mjd>1]), Period[mjd>1], 1)[0]
+        periodChangeRate *= 24*3600*365.25 # s/year
+    else:
+        periodChangeRate = 0.0
+    #print 'periodChangeRate', periodChangeRate
+    fits_model['PERIOD_CHANGE'] = periodChangeRate
     Period[np.isnan(Period)] = np.nanmean(Period)
     if all(np.isnan(Period)):
         Period = a['PERIOD']*np.ones(len(mjd))
@@ -1263,11 +1283,11 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
 
     if verbose:
         print 'exp. MASS: %5.2f'%round(mass_pr,2),\
-            'Msol (PMR from Bono et al. 2001)'
+                'Msol (PMR from Bono et al. 2001)'
         print '           %5.2f'%round(mass_r,2),\
-            'Msol (evol MR from Bono et al. 2001)'
+                'Msol (evol MR from Bono et al. 2001)'
         print '           %5.2f'%round(mass_r2,2),\
-            'Msol (puls MR from Bono et al. 2001)'
+                'Msol (puls MR from Bono et al. 2001)'
 
     fits_model['ASSUMED_MASS'] = (round(mass_pr,3), 'Msol, PMR Bono+ ApJ 563-319 (2001)')
 
@@ -1644,7 +1664,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
             if obs[1].split(';')[0]=='vpuls': # includes Vgamma
                 res.append(iVpuls(phi[k]))
             elif obs[1].split(';')[0]=='vrad':
-                res.append(iVrad(phi[k]) + Vgamma)
+                res.append(iVrad(phi[k]-vrad_phase_offset) + Vgamma)
             elif obs[1].split(';')[0]=='vgamma':
                 res.append(Vgamma)
             elif obs[1].split(';')[0]=='diam':
@@ -1704,6 +1724,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                 res.append(ilogg_m(phi[k]))
             elif obs[1].split(';')[0]=='teff':
                 if phi[k] is None:
+                    # -- no phase given
                     _x = np.linspace(0,1,50)[::-1]
                     _y = iTeff(_x)
                     if obs[-2]<=min(_y):
@@ -1714,6 +1735,9 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                         res.append(obs[-2])
                 else:
                     res.append(float(iTeff((phi[k]-teff_phase_offset)%1.0)))
+                    # -- assumes data have a certain offset
+                    if 'TEFF DATA OFFSET' in a.keys():
+                        res[-1] += a['TEFF DATA OFFSET']
 
             elif obs[1].split(';')[0]=='normalized spectrum':
                 print '--- normalized spectrum...',
@@ -2196,7 +2220,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
             for df in [-1,0,1]:
                 ### data
                 if plot:
-                    plt.errorbar(phi[w][_w]+df, [data[k] for k in w[0][_w]],
+                    plt.errorbar(phi[w][_w]+df-vrad_phase_offset, [data[k] for k in w[0][_w]],
                         yerr=[edata[k] for k in w[0][_w]], linestyle='none',
                         marker='.', label=s if df==0 else '',
                         markersize=3, color=color,
@@ -2625,6 +2649,12 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         # -- Teff model from SPIPS:
         plt.plot(X, iTeff(X)*1e-3, '-', label='model, ptp=%4.0fK'%(np.ptp(iTeff(X))),
                     linewidth=2, alpha=0.5, color=(0.1,0.5,0.25))
+        if 'TEFF DATA OFFSET' in a.keys():
+            # -- if data allowed to have an offset
+            plt.plot(X, (iTeff(X)+a['TEFF DATA OFFSET'])*1e-3, ':',
+                        label='model, $\Delta$=%.0fK'%(a['TEFF DATA OFFSET']),
+                        linewidth=2, alpha=0.5, color=(0.1,0.5,0.25))
+
     # -- plot nodes:
     if useSplineTeff:
         j = 0
@@ -2678,6 +2708,7 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                         'x', markersize=5, label=ori+' ignored' if df==0 else '', color=colors[i%len(colors)])
     if nchi2>0:
         allChi2.append(('TEFF', chi2/nchi2))
+
     if plot:
         plt.ylabel('Teff (1e3K)')
         plt.xlim(-0.1,1.1)
@@ -3259,32 +3290,42 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         print format%(k, c1, np.mean(resi), np.std(resi),
                      c2, np.abs(np.mean(eY[w])))
     print '-'*(N+31)
+    fits_model['CROSSING'] = 0
+    if any(['PERIOD' in k and k!='PERIOD' for k in a.keys()]):
+        # mjd = np.array([o[0] if not o[0] is None else np.nan for o in x])
+        # phi, period = phaseFunc(mjd, a)
+        # period[np.isnan(period)] = np.nanmean(period)
+        # phi[mjd<1] = mjd[mjd<1]
+        # dphi, dperiod = phaseFunc(mjd+365.25, a)
+        # dperiod[np.isnan(dperiod)] = np.nanmean(dperiod)
+        #
+        # phi0, period0 = phaseFunc(mjd, {'MJD0':a['MJD0'],
+        #                                 'PERIOD':a['PERIOD']})
+        # period0[np.isnan(period0)] = np.nanmean(period0)
+        #
+        # _y = (phi[mjd>1]-phi0[mjd>1]+0.5)%1.-0.5
+        # _x = mjd[mjd>1]
 
-    if 'PERIOD1' in a.keys():
-        mjd = np.array([o[0] if not o[0] is None else np.nan for o in x])
-
-        phi, period = phaseFunc(mjd, a)
-        period[np.isnan(period)] = np.nanmean(period)
-        phi[mjd<1] = mjd[mjd<1]
-        dphi, dperiod = phaseFunc(mjd+365.25, a)
-        dperiod[np.isnan(dperiod)] = np.nanmean(dperiod)
-
-        phi0, period0 = phaseFunc(mjd, {'MJD0':a['MJD0'],
-                                        'PERIOD':a['PERIOD']})
-        period0[np.isnan(period0)] = np.nanmean(period0)
-
-        _y = (phi[mjd>1]-phi0[mjd>1]+0.5)%1.-0.5
-        _x = mjd[mjd>1]
-
-        print ' > observed period change: %3.2f s/yr'%a['PERIOD1']
+        print ' > observed period change: %3.2f s/yr'%periodChangeRate
         print ' > model prediction from Fadeyev 2014 (blue edge -> red edge)'
-
+        x_crossing = {}
+        crossing, dist_crossing = 0, 1e6
         for i in [1,2,3]:
             tmp = periodChange(mass_pr, i=i)
-            if i==2:
-                tmp = (tmp[1], tmp[0])
+            #if i==2:
+            #    tmp = (tmp[1], tmp[0])
             print ' crossing %d'%i,
             print 'from %7.2f -> %7.2f s/yr'%tmp
+            # -- evol stage in crossing, from -0.5 to 0.5
+            # -- is || is larger, not that crossing
+            x_crossing[i] = -0.5+(periodChangeRate-tmp[0])/(tmp[1]-tmp[0])
+            if np.abs(x_crossing[i])<dist_crossing:
+                crossing = i
+                dist_crossing = np.abs(x_crossing[i])
+        if fits_model['PERIOD_CHANGE']<0 and np.abs(dist_crossing)>0.5:
+            fits_model['CROSSING'] = 2
+        fits_model['CROSSING'] = crossing
+        print(fits_model['PERIOD_CHANGE'], fits_model['CROSSING'])
 
     if not f_excess is None:
         tmp = tuple([f_excess(l) for l in [2., 5., 10., 24]])
@@ -3401,7 +3442,8 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         cols.append(pyfits.Column(name='PHASE', format='E',
                                       array=phi))
         cols.append(pyfits.Column(name='PERIOD', format='E11.8',
-                                      array=period))
+                                      array=Period))
+
 
         #hducols = pyfits.ColDefs(cols)
         #hdud = pyfits.new_table(hducols)
@@ -3475,6 +3517,68 @@ def importFits(fitsname, runSPIPS=False):
         model(obs, a, plot=True, starName=starName, verbose=True)
     else:
         return a, obs
+
+def check36_45colorModulation(fitsname, plot=True):
+    f = pyfits.open(fitsname, mode='update')
+    w1 = np.where(['I1_Spitzer' in x for x in f['DATA'].data['OBS']])
+    w2 = np.where(['I2_Spitzer' in x for x in f['DATA'].data['OBS']])
+    if len(w1[0])==0:
+        f.close()
+        print('No Spitzer Data')
+        return
+    x = f['DATA'].data['PHASE'][w1]
+    y = (f['DATA'].data['MEAS'][w1]-f['DATA'].data['MEAS'][w2] -
+         f['DATA'].data['MODEL'][w1]+f['DATA'].data['MODEL'][w2])
+    e = np.sqrt(f['DATA'].data['ERR'][w1]**2 + f['DATA'].data['ERR'][w2]**2)
+    p = {'A0':0.0, 'WAV':1,
+         'A1':0.05, 'PHI1':0.0,
+         'A2':0.02, 'PHI2':0.0,
+         'A3':0.01, 'PHI3':0.0,
+         'A4':0.01, 'PHI4':0.0,
+         }
+    fit = dpfit.leastsqFit(dpfit.fourier, x, p, y, e, doNotFit=['WAV'], verbose=1)
+    # -- RMS of residuals:
+    _x = np.linspace(0, 1, 100)
+    _y = dpfit.fourier(_x, fit['best'])
+    res = np.sqrt(np.mean(_y**2))
+    f[0].header['HIERARCH MODEL SIGMA3.6-4.5'] = res
+    f[0].header['HIERARCH MODEL ERR SIGMA3.6-4.5'] = np.mean(e)
+
+    if plot:
+        plt.figure(0)
+        plt.clf()
+        plt.subplot(411)
+        plt.plot(f['DATA'].data['PHASE'][w1], f['DATA'].data['MEAS'][w1], 'ok')
+        plt.plot(f['MODEL'].data['PHASE'], f['MODEL'].data['MAG I1_Spitzer_IRAC'], '-r')
+        plt.ylabel('[3.6]')
+
+        plt.subplot(412)
+        plt.plot(f['DATA'].data['PHASE'][w2], f['DATA'].data['MEAS'][w2], 'ok')
+        plt.plot(f['MODEL'].data['PHASE'], f['MODEL'].data['MAG I2_Spitzer_IRAC'], '-r')
+
+        plt.ylabel('[4.5]')
+        plt.subplot(413)
+        # -- assumes 3.6 and 4.5 data are same phases and are recorded in the same order
+        plt.plot(f['DATA'].data['PHASE'][w1],
+                f['DATA'].data['MEAS'][w1]-f['DATA'].data['MEAS'][w2], 'ok')
+        plt.plot(f['MODEL'].data['PHASE'],
+                 f['MODEL'].data['MAG I1_Spitzer_IRAC']-f['MODEL'].data['MAG I2_Spitzer_IRAC'], '-r')
+        plt.ylabel('[3.6] - [4.5]')
+        plt.ylim(-0.2, 0.2)
+
+        plt.subplot(414)
+        #plt.plot(x, y, 'ok')
+        plt.errorbar(x, y, yerr=e, linestyle='none', marker='.', color='k')
+        plt.plot(_x, _y, '-b', alpha=0.5)
+        plt.hlines(0, 0, 1, color='r', linestyle='dashed', alpha=0.2)
+        plt.text(0.5, 0, '$\sigma$ = %.3f'%res, va='center', ha='center')
+        plt.ylim(-0.1, 0.1)
+        plt.ylabel('residuals')
+        plt.xlabel('pulsation Phase')
+        plt.suptitle(f[0].header['STARNAME'].strip())
+
+    f.close()
+    return
 
 def datasetPhaseCoverageQuality(obs):
     Nvrad = np.sum([(o[1].startswith('vrad') or o[1].startswith('vpuls'))
@@ -3689,12 +3793,11 @@ def phaseFunc(mjd, p, vgamma=0.0):
         __period += (__mjd_mjd0)*p['PERIOD1']/(24*3600*365.25)
 
     px = filter(lambda x: x.startswith('PERIOD') and
-                x!='PERIOD' and x!='PERIOD1', p.keys())
+                x!='PERIOD' and x!='PERIOD1' and not x.startswith('PERIOD '), p.keys())
     if len(px)>0:
         for k in px:
             x = float(k.split('PERIOD')[1])
             __period += ((__mjd_mjd0)/1e4)**x*p[k]
-
 
     # -- check for keys: "PERIOD MJDx", "PERIOD VALx"
     # -- for piecewise lineate interpolations
@@ -3710,13 +3813,12 @@ def phaseFunc(mjd, p, vgamma=0.0):
         __period = np.interp(mjd, mjd_, p_)
 
     # -- sin variation of period
-    if p.has_key('PERIOD SIN AMP') and \
-        p.has_key('PERIOD SIN PHI') and \
-         p.has_key('PERIOD SIN PER'):
-         # -- amplitude in seconds:
-         s = 1/(24*3600.)
-         __period += s*p['PERIOD SIN AMP']*np.sin(2*np.pi*__mjd_mjd0/p['PERIOD SIN PER'] +
-                                                p['PERIOD SIN PHI'])
+    sinmod = set([k.split('PERIOD SIN PER')[1] for k in p.keys() if k.startswith('PERIOD SIN PER')])
+    for sm in sinmod:
+        # -- amplitude in seconds:
+        s = 1/(24*3600.)
+        __period += s*p['PERIOD SIN AMP'+sm]*np.sin(2*np.pi*__mjd_mjd0/p['PERIOD SIN PER'+sm] +
+                                                p['PERIOD SIN PHI'+sm])
 
     # -- phase shift due to Vgamma and speed of light.
     # -- phase shift / MJD0
@@ -3940,6 +4042,29 @@ def photometrySED(diam, teff, filtname, metal=0.0, plot=False, Nwl=100,
 
         else:
             return photfilt2.convert_Wm2um_to_mag(iF, filtname)
+
+def fitPhotDiam(data, firstguess=None, fitOnly=['diam', 'Teff']):
+    """
+    data = [('filtname', mag, err), ...]
+    """
+    if firstguess is None:
+        firstguess = {'diam':2.0, 'Teff':6000, 'E(B-V)':0.0}
+    fit = dpfit.leastsqFit(funcPhotDiam, data, firstguess,
+                        np.array([d[1] for d in data]),
+                        np.array([d[2] for d in data]),
+                        fitOnly=fitOnly, verbose=0)
+    return fit
+
+
+def funcPhotDiam(data, p):
+    """
+    data = [('filtname', mag), ...]
+    """
+    res = [photometrySED(p['diam'], p['Teff'], d[0])[0][0] for d in data]
+    if 'E(B-V)' in p.keys():
+        for i,d in enumerate(data):
+            res[i] += Alambda_Exctinction(d[0], EB_V=p['E(B-V)'], Teff=p['Teff'])
+    return np.array(res)
 
 def minMag(a, filters):
     """
@@ -4506,7 +4631,8 @@ def testWesenheit(B_V0=1.0, Rv=3.1):
             MI-1.96*(MB-MV), MV-3.24*(MB-MV))
     return
 
-def findWesenheit(B1='V_JOHNSON', B2='I_BESSELL', EB_Vmax=0.6, Rv=3.1, plot=True):
+def findWesenheit(B1='V_Johnson', B2='I_Bessell', EB_Vmax=1.0, Rv=3.1, plot=False,
+                    Teff=6000.):
     """
     comes from hypothesis that Rv = Av/E(B-V) so the expression "V - Rv*(B-V)"
     is free of redenning. Using this function, one can compute the Wesenheit
@@ -4515,21 +4641,14 @@ def findWesenheit(B1='V_JOHNSON', B2='I_BESSELL', EB_Vmax=0.6, Rv=3.1, plot=True
     Weseinheit ~= Intrinsic, Essential in German
     """
     EB_V = np.linspace(0, EB_Vmax, 20)
-    if isinstance(B1, float):
-        wl1 = B1
-    else:
-        wl1 = photfilt2.effWavelength_um(B1)
-    if isinstance(B2, float):
-        wl2 = B2
-    else:
-        wl2 = photfilt2.effWavelength_um(B2)
 
-    R1 = np.array([Alambda_Exctinction(wl1, e, Rv=Rv) for e in EB_V])
-    R2 = np.array([Alambda_Exctinction(wl2, e, Rv=Rv) for e in EB_V])
+    R1 = np.array([Alambda_Exctinction(B1, e, Rv=Rv, Teff=Teff) for e in EB_V])
+    R2 = np.array([Alambda_Exctinction(B2, e, Rv=Rv, Teff=Teff) for e in EB_V])
     c1 = np.polyfit(EB_V, R1, 1)
     c2 = np.polyfit(EB_V, R2, 1)
-
-    s = '%s - %4.2f*%s'%(B1, c1[0]/c2[0], B2)
+    print B1, c1
+    print B2, c2
+    s = '%s - %5.3f*%s'%(B1, c1[0]/c2[0], B2)
 
     if plot:
         plt.close(0)
@@ -4543,7 +4662,7 @@ def findWesenheit(B1='V_JOHNSON', B2='I_BESSELL', EB_Vmax=0.6, Rv=3.1, plot=True
         plt.ylabel(r'A$_\lambda$')
 
         plt.subplot(212)
-        plt.plot(EB_V, R1 - c1[0]*R2/c2[0], 'ok-',
+        plt.plot(EB_V, R1 - R2/c2[0], 'ok-',
                  label=s)
         plt.legend(loc='lower right')
         plt.xlabel('E(B-V)')

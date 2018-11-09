@@ -332,7 +332,7 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
                     print formatS%k , pfix[k], ',',
                     print '# +/-', uncer[k]
             print '}' # end of the dictionnary
-        
+
         try:
             if verbose>1:
                 print '-'*3, 'correlations:', '-'*15
@@ -373,7 +373,7 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
         pfix={'best':pfix, 'uncer':uncer,
               'chi2':reducedChi2, 'model':model,
               'cov':cov, 'fitOnly':fitOnly,
-              'info':info, 'cor':cor, 'x':x, 'y':y, 'func':func}
+              'info':info, 'cor':cor, 'x':x, 'y':y, 'err':err, 'func':func}
     return pfix
 
 def randomParam(fit, N=None, x=None):
