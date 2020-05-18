@@ -168,9 +168,12 @@ def sliding_avg_interp1d_WEAVE(x,y,x0,dx0=None):
         y0[wi] = np.interp(x0[wi], x0[wf], y0[wf])
     return y0
 
-def _atmoTrans(wl):
+def _atmoTrans(wl, expo=1.5):
     """
     wl in um
+    return T**expo where T is the transmission of the atmosphere between
+    0.3 and 5um in wavelength, 
+    for 1.0mm of water vapor if expo=1.0 
     """
     global _atmoData
     try:
@@ -186,7 +189,7 @@ def _atmoTrans(wl):
             _atmoData.append([float(l.split()[0])/1000., float(l.split()[1])])
         f.close()
         _atmoData = np.array(_atmoData)
-    expo = 1.5 #  <1. to crudly decrease water vapor, 0 to eliminate it
+    #  expo to crudly decrease water vapor, 0 to eliminate it
     return np.interp(wl, _atmoData[:,0], _atmoData[:,1]**expo)
 
 def _ccd(wl):
@@ -201,7 +204,7 @@ def Transmission(filtname, withAtmo='auto'):
     if withAtmo == 'auto':
         # -- facilities in space or which already took into account atmo
         space = ['IRAS', 'Spitzer', 'Hipparcos', '2MASS', 'DENIS', 'TYCHO',
-                'TESS', 'GAIA', 'MSX', 'AKARI', 'DIRBE', 'HST']
+                'TESS', 'GAIA', 'MSX', 'AKARI', 'DIRBE', 'HST', 'JWST']
         withAtmo = not any([s.lower() in filtname.lower() for s in space])
 
     if withAtmo:

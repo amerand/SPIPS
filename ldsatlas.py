@@ -9,6 +9,7 @@ import astropy.io.fits as pyfits
 import scipy.stats
 import itertools
 import sys
+from scipy.interpolate import interp1d
 
 """
 ldsatlas._udld('../SPIPS/DATA/LD_NEILSON/GIANTS/spheric/ld_satlas_surface.2t5700g100m100.dat', plot=1)
@@ -31,7 +32,7 @@ nei5 = {c:[] for c in col5}
 col16 = ['Teff', 'logg', 'mass', 'B','V','R','I','H','K','CoR','Kep']
 nei16 = {c:[] for c in col16}
 
-TeffMin, TeffMax = 4000, 20000
+TeffMin, TeffMax = 3900, 20000
 ftpServer = 'cdsarc.u-strasbg.fr'
 
 def downloadAllModels():
@@ -69,13 +70,15 @@ def downloadAllModels():
         Teff = int(f.split('surface.2t')[1].split('g')[0])
         logg = int(f.split('surface.2t')[1].split('g')[1].split('m')[0])
         mass = int(f.split('surface.2t')[1].split('g')[1].split('m')[1].split('.')[0])
-        if Teff>=TeffMin and Teff<=TeffMax and Teff%300==0:
-        #if True:
-            if not os.path.exists(os.path.join(_data_dir, _files_dir, 'spheric', f)):
+        if Teff>=TeffMin and Teff<=TeffMax:
+            if Teff%200==0 and \
+                    not os.path.exists(os.path.join(_data_dir, _files_dir, 'spheric', f)):
                 print 'downloading %3d/%3d'%(k+1, len(files)),
                 print f
                 ftp.retrbinary('RETR '+f,
                            open(os.path.join(_data_dir, _files_dir, 'spheric', f), 'wb').write)
+        else:
+            print('ignoring:', f)
     print ' > loading planar models...'
     if not os.path.exists(os.path.join(_data_dir, _files_dir, 'planar')):
         os.makedirs(os.path.join(_data_dir, _files_dir, 'planar'))
@@ -84,7 +87,7 @@ def downloadAllModels():
     for k,f in enumerate(files):
         Teff = int(f.split('ld_t')[1].split('g')[0])
         logg = int(f.split('ld_t')[1].split('g')[1].split('_')[0])
-        if Teff>=TeffMin and Teff<=TeffMax and Teff%300==0 and logg>=75 and logg<=500:
+        if Teff>=TeffMin and Teff<=TeffMax and Teff%200==0:# and logg>=75 and logg<=500:
             if not os.path.exists(os.path.join(_data_dir, _files_dir, 'planar', f)):
                 print 'downloading %3d/%3d'%(k+1, len(files)),
                 print f
@@ -121,7 +124,8 @@ def downloadAllModels():
         Teff = int(f.split('surface.2t')[1].split('g')[0])
         logg = int(f.split('surface.2t')[1].split('g')[1].split('m')[0])
         mass = int(f.split('surface.2t')[1].split('g')[1].split('m')[1].split('.')[0])
-        if Teff>=TeffMin and Teff<=TeffMax and Teff%300==0 and logg>=75 and logg<=500 and mass >=50 and mass%10==0:
+        if Teff>=TeffMin and Teff<=TeffMax and (Teff%200==0 or Teff==4900 or Teff==5100 or Teff==4700) \
+                    and logg>=75 and logg<=500:
         #if True:
             if not os.path.exists(os.path.join(_data_dir, _files_dir, 'spheric', f)):
                 print 'downloading %3d/%3d'%(k+1, len(files)),
@@ -136,7 +140,8 @@ def downloadAllModels():
     for k,f in enumerate(files):
         Teff = int(f.split('ld_t')[1].split('g')[0])
         logg = int(f.split('ld_t')[1].split('g')[1].split('_')[0])
-        if Teff>=TeffMin and Teff<=TeffMax and Teff%300==0 and logg>=75 and logg<=500:
+        if Teff>=TeffMin and Teff<=TeffMax and (Teff%200==0 or Teff==4900 or Teff==5100 or Teff==4700) \
+                    and logg>=75 and logg<=500:
             if not os.path.exists(os.path.join(_data_dir, _files_dir, 'planar', f)):
                 print 'downloading %3d/%3d'%(k+1, len(files)),
                 print f
@@ -194,10 +199,14 @@ for c in cols:
 # ===============================================================================
 
 # -- Claret 4-coef, for comparison ---------------------------------------
-C4 = {}
-if os.path.exists('../SPIPS/ATMO/tableeq5.dat'):
-    print 'reading Claret+ 2011 4-coef table'
-    f = open(os.path.join(_data_dir, 'ATMO/tableeq5.dat'))
+try:
+    kz = C4.keys()
+except:
+    C4 = {}
+
+if C4=={} and os.path.exists('../SPIPS/DATA/LD_CLARET/tableeq5.dat'):
+    #print 'reading Claret+ 2011 4-coef table'
+    f = open(os.path.join(_data_dir, 'LD_CLARET/tableeq5.dat'))
     for l in f.readlines():
         # -- Teff, logg, Fe/H, Xi
         key = (float(l.split()[1]), float(l.split()[0]),
@@ -230,7 +239,7 @@ def UDLD(o, diam, Teff):
                     Teff = int(filename.split('surface.2t')[1].split('g')[0])
                     logg = float(filename.split('surface.2t')[1].split('g')[1].split('m')[0])/100.
                     mass = float(filename.split('surface.2t')[1].split('g')[1].split('m')[1].split('.')[0])/10.
-                    if Teff%300==0 and logg==1.5 and mass==15.:
+                    if Teff%200==0 and logg==1.5 and mass==15.:
                         print filename
                         _data[Teff] = _udld(os.path.join(_data_dir, _files_dir, 'spheric', filename), plot=False)
             f = open(os.path.join(_data_dir, datafile), 'wb')
@@ -763,22 +772,99 @@ def v2_interp(bl, param):
         _V2 = np.interp(x, _mdata['x'], _mdata['V2_'+param['band']])
     return _V2
 
-def fitDiamModel(oifits, model=None, figure=0, bootstrapping=False, firstGuess=3.0,
-                compareC4 = True):
-    """
-    fit V2 in OIFITS data file ("oifits") using a V2 profile computed from an SATLAS models.
-
-    Models can be found at: ftp://cdsarc.u-strasbg.fr/J/A+A/554/A98/spheric
-    and should downloaded locally. "model" should be the address of a .dat model
-
-    firstGuess is the expected diameter in mas
-    """
-    global _mdata, rossTable, C4
-
-    #-- Read OIFITS file ---------------------
+def compareModels(model=None, band='H', xmin=0.95):
     # -- effective wavelengths
     wl = {0.44:'B', 0.55:'V', 0.71:'R', 0.97:'I', 1.62:'H', 2.22:'K'}
-    _wl = np.array(wl.keys())
+    if model is None:
+        model = './DATA/LD_NEILSON/GIANTS/spheric/ld_satlas_surface.2t5100g150m100.dat'
+    # -- read file:
+    f = open(model)
+    cols = ['mu','B','V','R','I','H','K']
+    _mdata = {c:[] for c in cols}
+    for l in f.readlines():
+        for k,c in enumerate(cols):
+            _mdata[c].append(float(l.split()[k]))
+    for c in cols:
+        _mdata[c] = np.array(_mdata[c])
+    f.close()
+    if 'spheric' in model:
+        _mdata['Teff'] = int(model.split('surface.2t')[1].split('g')[0])
+        _mdata['logg'] = float(model.split('surface.2t')[1].split('g')[1].split('m')[0])/100.
+        _mdata['mass'] = float(model.split('surface.2t')[1].split('g')[1].split('m')[1].split('.')[0])/10.
+        # -- find Rosseland diam from files sent by Hilding:
+        i0 = np.argmin(((rossTable['Teff']-_mdata['Teff'])/1000.)**2 +
+                          (rossTable['logg']-_mdata['logg'])**2+
+                          (rossTable['mass']-_mdata['mass'])**2)
+        r0 = rossTable['Ross/Outer'][i0]
+    else:
+        _mdata['Teff'] = int(model.split('ld_t')[1].split('g')[0])
+        _mdata['logg'] = float(model.split('ld_t')[1].split('g')[1].split('_')[0])/100.
+        r0 = 1.0
+
+    r = np.sqrt(1-_mdata['mu']**2)/r0
+    I = _mdata[band]/np.max(_mdata[band])
+
+    # -- Claret coefficients
+    # 'ATLAS' or 'PHOENIX'
+    c4_model = 'ATLAS' # 1-D
+
+    c4_band = band+'_'+c4_model
+    d = [(k[0]-_mdata['Teff'])**2/1e6 +
+         (k[1]-_mdata['logg'])**2 +
+         (k[2])**2 + (k[3]-2.)**2 for k in C4[c4_band].keys()]
+    k = C4[c4_band].keys()[np.argmin(d)]
+    print 'C4: (Teff, logg, Fe/H, Xi) = ', k, '->', C4[c4_band][k]
+    Ic4 = 1.
+    mu = np.linspace(0,1,100)
+    for i,a in enumerate(C4[c4_band][k]):
+        Ic4 -= a*(1-mu**((i+1)/2.))
+    rc4 = np.sqrt(1-mu**2)
+
+    _p = 1
+    # --
+    plt.close(0)
+    plt.figure(0, figsize=(10,4))
+
+    plt.subplot(121)
+    plt.plot(r**_p, I, '-b', label="Neilson's models")
+    plt.plot(rc4**_p, Ic4, '--r', label='Claret 4 coefs. '+c4_model)
+    if _p>1:
+        plt.xlabel(r'(r/r$_{Ross}$)$^{%.0f}$'%_p)
+    else:
+        plt.xlabel(r'r/r$_{Ross}$')
+    plt.vlines(1, 0, 1.5*np.interp(1, r[::-1], I[::-1]),
+                color='k', linestyle='dotted', alpha=0.5)
+    plt.ylabel('I/I$_{max}$')
+    plt.legend()
+    plt.xlim(xmin, 1.05)
+    plt.ylim(0.0, 1.1*np.interp(xmin, r[::-1], I[::-1]))
+
+    plt.subplot(122)
+    x = np.linspace(0, 4, 5001)
+    # -- visibility from SATLAS
+    V = np.trapz(I[:,None]*r[:,None]*special.jv(0,x[None,:]*r[:,None]), axis=0)
+    V /= np.trapz(I*r)
+    x0 = np.interp(0, V[::-1], x[::-1])
+    plt.plot(x, np.abs(V), '-b')
+
+    # -- C4
+    Vc4 = np.trapz(Ic4[:,None]*rc4[:,None]*special.jv(0,x[None,:]*rc4[:,None]), axis=0)
+    Vc4 /= np.trapz(Ic4*rc4)
+    x0c4 = np.interp(0, Vc4[::-1], x[::-1])
+
+    plt.plot(x, np.abs(Vc4), '--r')
+    plt.xlabel('spatial freq.')
+    plt.ylabel('|V|')
+
+    plt.suptitle(model+' ['+band+' band]')
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.90)
+
+    print 'diameter bias (C4_ATLAS / SATLAS) = %.3f'%(x0c4/x0)
+
+    return
+
+def loadOIfits(oifits):
     f = pyfits.open(oifits) # -- assumes single target, single instrument!
     oidata = {'B/l':[], 'v2':[], 'ev2':[], 'station':[]}
     for h in f[1:]:
@@ -792,20 +878,76 @@ def fitDiamModel(oifits, model=None, figure=0, bootstrapping=False, firstGuess=3
             sta = [int('%d%d'%tuple(s)) for s in h.data['STA_INDEX']]
             sta = np.array(sta)[:,None] + 0*f['OI_WAVELENGTH'].data['EFF_WAVE'][None,:]
             oidata['station'].extend(list(sta.flatten()))
-            avgWl = f['OI_WAVELENGTH'].data['EFF_WAVE'].mean()*1e6
+            oidata['avgWl'] = f['OI_WAVELENGTH'].data['EFF_WAVE'].mean()*1e6
             oidata['R'] = f['OI_WAVELENGTH'].data['EFF_WAVE'].mean()/\
                             f['OI_WAVELENGTH'].data['EFF_BAND'].mean()
     for k in oidata.keys():
         oidata[k] = np.array(oidata[k])
+    oidata['title'] = os.path.basename(oifits)
     f.close()
-    # -- done reading the OIFITS file -----------------
+    return oidata
+
+def fitDiamModel(oifits, model=None, figure=0, bootstrapping=False, firstGuess=3.0,
+                compareC4=True, uLin=None):
+    """
+    fit V2 in OIFITS data file ("oifits") using a V2 profile computed from an SATLAS models.
+
+    oifits can be dict: {'B/l':, 'v2':, 'ev2':, 'R':, 'avgWl':, 'station':}
+    ndarray (all same length):
+    'B/l': baseline/wavelength (m/m)
+    'v2': squared visibilities (0..1)
+    'ev2': absolute squared visibilities error (0..1)
+    'station': list of baseline names, used for bootstrapping
+
+    scalar:
+    'R': spectral resolution (scalar), for synthetic visibilities
+    'avgWl': average wavelength (in um), to determine that adequate band
+
+    Models can be found at: ftp://cdsarc.u-strasbg.fr/J/A+A/554/A98/spheric
+    and should downloaded locally. "model" should be the address of a .dat model
+
+    firstGuess is the expected diameter in mas
+    """
+    global _mdata, rossTable, C4
+
+    #-- Read OIFITS file ---------------------
+    # -- effective wavelengths
+    wl = {0.44:'B', 0.55:'V', 0.71:'R', 0.97:'I', 1.62:'H', 2.22:'K'}
+    _wl = np.array(wl.keys())
+    if isinstance(oifits, str):
+        oidata = loadOIfits(oifits)
+    elif isinstance(oifits, list):
+        oidata = None
+        for f in oifits:
+            print f
+            if oidata is None:
+                oidata = loadOIfits(f)
+            else:
+                tmp = loadOIfits(f)
+                for k in oidata.keys():
+                    if not np.isscalar(oidata[k]):
+                        oidata[k] = np.append(oidata[k], tmp[k])
+        try:
+            oidata['R'] = np.mean(oidata['R'])
+            oidata['avgWl'] = np.mean(oidata['avgWl'])
+        except:
+            pass
+    else:
+        oidata = oifits
+    w = oidata['B/l'] > 0
+    for k in oidata.keys():
+        try:
+            oidata[k] = oidata[k][w]
+        except:
+            pass
+    #return oidata
 
     # -- determining band to consider in SATLAS model:
-    band = wl[_wl[np.abs(_wl-avgWl).argmin()]]
+    band = wl[_wl[np.abs(_wl-oidata['avgWl']).argmin()]]
     print 'selecting %s band according to OIFITS wavelength table'%band
     # -- load SATLAS model in _mdata ------
     if model is None:
-        model = './DATA/LD_NEILSON/GIANTS/spheric/ld_satlas_surface.2t5800g150m75.dat'
+        model = './DATA/LD_NEILSON/GIANTS/spheric/ld_satlas_surface.2t5100g150m100.dat'
     # -- read file:
     f = open(model)
     cols = ['mu','B','V','R','I','H','K']
@@ -819,12 +961,20 @@ def fitDiamModel(oifits, model=None, figure=0, bootstrapping=False, firstGuess=3
     _mdata['Teff'] = int(model.split('surface.2t')[1].split('g')[0])
     _mdata['logg'] = float(model.split('surface.2t')[1].split('g')[1].split('m')[0])/100.
     _mdata['mass'] = float(model.split('surface.2t')[1].split('g')[1].split('m')[1].split('.')[0])/10.
+
     # -- compute visibility to be interpolated:
     xmax = np.pi*oidata['B/l'].max()*(firstGuess*np.pi/(180*3600*1000.))
     xmin = np.pi*oidata['B/l'].min()*(firstGuess*np.pi/(180*3600*1000.))
     x = np.linspace(xmin/3., 3.*xmax, 1000) # extended spatial frequency range
     r = np.sqrt(1-_mdata['mu']**2)
     I = _mdata[band]
+
+    # -- I does not go to center (r==0, mu==1)
+    w = _mdata['mu'] > 0.8
+    c = np.polyfit(_mdata['mu'][w], I[w], 1)
+    r = np.append(r, 0)
+    I = np.append(I, np.polyval(c, 1))
+
     # -- find Rosseland diam from files sent by Hilding:
     i0 = np.argmin(((rossTable['Teff']-_mdata['Teff'])/1000.)**2 +
                       (rossTable['logg']-_mdata['logg'])**2+
@@ -832,54 +982,92 @@ def fitDiamModel(oifits, model=None, figure=0, bootstrapping=False, firstGuess=3
     r0 = rossTable['Ross/Outer'][i0]
     print 'Ross. Table=%4.3f; max var=%4.3f'%(rossTable['Ross/Outer'][i0],
                                              maxVar(I, r))
+    print '   Teff=%.0fK, logg=%.2f mass=%.0fMsol'%(rossTable['Teff'][i0],
+                                                    rossTable['logg'][i0],
+                                                    rossTable['mass'][i0])
+
     r /= r0
-    _mdata['r'] = r
-    V2 = np.trapz(special.jv(0,x[None,:]*r[:,None])*I[:,None]*r[:,None],
-                              r[:,None], axis=0)**2
-    V2_0 = np.trapz(special.jv(0,0*r)*(I*r), r)**2
+    _mdata['r'] = r[::-1]
+    _mdata[band] = I[::-1]/np.max(I)
+
+    print 'rmin/max:', np.min(_mdata['r']), np.max(_mdata['r'])
+    print 'Imin/max:', np.min(_mdata[band]), np.max(_mdata[band])
+
+    # _mdata['r'] = np.linspace(0, np.max(r), 1000)
+    # _mdata[band] = interp1d(r[::-1], I[::-1], kind='slinear',
+    #                         fill_value=(np.max(I), 0), bounds_error=0)(_mdata['r'])
+
+    V2 = np.trapz(special.jv(0,x[None,:]*_mdata['r'][:,None])*_mdata[band][:,None]*_mdata['r'][:,None],
+                              _mdata['r'][:,None], axis=0)**2
+    V2_0 = np.trapz(special.jv(0,0*_mdata['r'])*(_mdata[band]*_mdata['r']), _mdata['r'])**2
     V2 /= V2_0
+
     _mdata['V2_'+band] = V2
     _mdata['x'] = x
 
     #-- Done loading the model ------
 
+    if 'R' in oidata:
+        guess = {'diam': firstGuess, 'band':band, 'R':oidata['R']}
+    else:
+        guess = {'diam': firstGuess, 'band':band}
+
     # -- fitting LD and UD models:
     fit = dpfit.leastsqFit(v2_interp, oidata['B/l'],
-                         {'diam': firstGuess, 'band':band, 'R':oidata['R']},
+                         guess,
                          oidata['v2'], oidata['ev2'], verbose=0,
                          fitOnly=['diam'])
-    # print 'wl smeared SATLAS: diam = %6.4f +- %6.4f mas (chi2=%4.3f)'%(fit['best']['diam'],
-    #                                                        fit['uncer']['diam'],
-    #                                                        fit['chi2'])
+    print 'wl smeared SATLAS: diam = %6.4f +- %6.4f mas (chi2=%4.3f)'%(fit['best']['diam'],
+                                                           fit['uncer']['diam'],
+                                                           fit['chi2'])
 
-    fitUD = dpfit.leastsqFit(v2ud_fit, oidata['B/l'],
-                         {'diam': firstGuess, 'R':oidata['R']}, oidata['v2'],
-                         oidata['ev2'], fitOnly=['diam'], verbose=0)
-    # print 'wl smeared UD    : diam = %6.4f +- %6.4f mas (chi2=%4.3f)'%(fitUD['best']['diam'],
-    #                                                          fitUD['uncer']['diam'],
-    #                                                          fitUD['chi2'])
+    fit['satlas model'] = model
+    res = {'SATLAS':fit}
+
+    fitUD = dpfit.leastsqFit(v2ud_fit, oidata['B/l'], guess, oidata['v2'],
+                             oidata['ev2'], fitOnly=['diam'], verbose=0)
+    print 'wl smeared UD    : diam = %6.4f +- %6.4f mas (chi2=%4.3f)'%(fitUD['best']['diam'],
+                                                             fitUD['uncer']['diam'],
+                                                             fitUD['chi2'])
+    res['UD'] = fitUD
+
+    if not uLin is None:
+        fitLin = dpfit.leastsqFit(v2Lin, oidata['B/l'], {'diam':firstGuess, 'u':uLin},
+                             oidata['v2'], oidata['ev2'], fitOnly=['diam'],
+                             verbose=0)
+        print 'u=%.4f         : diam = %6.4f +- %6.4f mas (chi2=%4.3f)'%(
+                                fitLin['best']['u'],
+                                fitLin['best']['diam'], fitLin['uncer']['diam'],
+                                fitLin['chi2'])
+        res['linear'] = fitLin
+    else:
+        fitLin = None
 
     if compareC4:
         # -- J/A+A/529/A75/tableeq5
-        c4_model = 'PHOENIX' # 'ATLAS' or 'PHOENIX'
+        # 'ATLAS' or 'PHOENIX'
+        c4_model = 'PHOENIX' # only for high gravity (i.e. dwarfs)
+        c4_model = 'ATLAS'
         c4_band = band+'_'+c4_model
         d = [(k[0]-_mdata['Teff'])**2/1e6 +
              (k[1]-_mdata['logg'])**2 +
              (k[2])**2 + (k[3]-2.)**2 for k in C4[c4_band].keys()]
         k = C4[c4_band].keys()[np.argmin(d)]
-        print k,
-        p = {'diam': firstGuess, 'R':oidata['R']}
-        p.update({'a'+str(i+1):C4[c4_band][k][i] for i in range(4)})
-        print p
-        fitC4 = dpfit.leastsqFit(v2Claret4, oidata['B/l'],p,
+        guess.update({'a'+str(i+1):C4[c4_band][k][i] for i in range(4)})
+        fitC4 = dpfit.leastsqFit(v2Claret4, oidata['B/l'], guess,
                              oidata['v2'], oidata['ev2'], fitOnly=['diam'], verbose=0)
+        print 'Claret 4 param   : diam = %6.4f +- %6.4f mas (chi2=%4.3f)'%(fitC4['best']['diam'],
+                                                             fitC4['uncer']['diam'],
+                                                             fitC4['chi2'])
+        print 'C4 for (Teff, logg, Fe/H, Xi) = ', k
+        fitC4['Teff,logg,FeH,Xi'] = k
+        res['C4'] = fitC4
 
     if oidata['B/l'].max()*1e-6*fit['best']['diam']>300:
         fitAlpha = dpfit.leastsqFit(v2Alpha, oidata['B/l'],
                          {'diam': fit['best']['diam'], 'alpha':0.0, 'R':oidata['R']},
                          oidata['v2'], oidata['ev2'], verbose=0, doNotFit=['R'])
     else:
-        print '!!!', oidata['B/l'].max()*1e-6*fit['best']['diam']
         fitAlpha = None
 
     # -- bootstrapping on baselines:
@@ -901,41 +1089,67 @@ def fitDiamModel(oifits, model=None, figure=0, bootstrapping=False, firstGuess=3
     if not figure is None:
         plt.close(figure)
         plt.figure(figure, figsize=(11,7))
-        plt.suptitle(os.path.basename(oifits)+
+        plt.suptitle(oidata['title']+
                      '\nSATLAS [%s-band] Teff=%4.0fK logg=%4.2f M=%3.1fMsol'%(
                      band, _mdata['Teff'], _mdata['logg'], _mdata['mass']), fontsize=16)
 
+        # if compareC4:
+        #     ax2 = plt.subplot(221)
+        #     axcomp = plt.subplot(223, sharex=ax2)
+        # else:
         ax2 = plt.subplot(121)
-        ax2.plot(_mdata['r']*fit['best']['diam']/2., _mdata[band], color='r',
+
+        ax2.plot(_mdata['r']*fit['best']['diam']/2., _mdata[band], '-r',
                  label=r'SATLAS: $\theta=$ %5.3f $\pm$ %5.3f mas, $\chi^2$=%4.2f'%(fit['best']['diam'],
                                                            fit['uncer']['diam'],
                                                            fit['chi2']))
-        # ax2.plot(_mdata['r']*fitUD['best']['diam']/2., _mdata['r']<=1, color='b',
-        #          label=r'UD: $\theta=$ %5.3f $\pm$ %5.3f mas, $\chi^2$=%4.2f'%(fitUD['best']['diam'],
-        #                                                    fitUD['uncer']['diam'],
-        #                                                    fitUD['chi2']))
+
         ax2.set_xlabel(r'r (mas)')
         ax2.set_ylabel('I/Imax')
         mu = np.linspace(0,1,500)
         if compareC4:
-            r = fitC4['best']['diam']/2.*np.sqrt(1-mu**2)
-            I = 1.
+            rc4 = fitC4['best']['diam']/2.*np.sqrt(1-mu**2)
+            Ic4 = 1.
             for i in [1,2,3,4]:
-                I -= fitC4['best']['a'+str(i)]*(1-mu**(i/2.))
-            ax2.plot(r, I, '-g', label=r'C4 %s: $\theta=$ %5.3f $\pm$ %5.3f, $\chi^2$=%4.2f'%(
+                Ic4 -= fitC4['best']['a'+str(i)]*(1-mu**(i/2.))
+            ax2.plot(rc4, Ic4, '-g', label=r'C4 %s: $\theta=$ %5.3f $\pm$ %5.3f mas, $\chi^2$=%4.2f'%(
                                                       c4_model,
                                                       fitC4['best']['diam'],
                                                       fitC4['uncer']['diam'],
                                                       fitC4['chi2']))
+            ax2.vlines(fitC4['best']['diam']*0.5, 0, 1, color='g', linestyle='dotted',
+                       alpha=0.5)
+            satlas = interp1d(_mdata['r']*fit['best']['diam']/2., _mdata[band],
+                                bounds_error=False, fill_value=(0, 1))
+            ratlas = interp1d(_mdata[band][::-1], _mdata['r'][::-1]*fit['best']['diam']/2.,
+                              bounds_error=False, fill_value=(1, 0))
 
+            #axcomp.plot(rc4, rc4/ratlas(Ic4),'--k')
+        if not fitLin is None:
+            Ilin = 1-fitLin['best']['u']*(1-mu)
+            rlin = np.sqrt(1-mu**2)
+            ax2.plot(rlin*fitLin['best']['diam']/2., Ilin, '-m',
+                    label=r'u=%.3f: $\theta=$ %5.3f $\pm$ %5.3f mas, $\chi^2$=%4.2f'%(
+                                fitLin['best']['u'],
+                                fitLin['best']['diam'], fitLin['uncer']['diam'],
+                                fitLin['chi2']))
+            ax2.vlines(fitLin['best']['diam']/2., 0, 1, color='m', linestyle='dotted')
+
+        ax2.set_xlim(fit['best']['diam']*0.45, fit['best']['diam']*0.52)
+        print('r0=', r0)
+        ax2.vlines(fit['best']['diam']*0.5, 0, 1, color='r', linestyle='dotted',
+                    alpha=0.5)
         ax3 = plt.subplot(222)
+
         ax3.errorbar(oidata['B/l'], oidata['v2'], yerr=oidata['ev2'], fmt='.k',
                     alpha=0.2)
         Bl = np.linspace(0.9*oidata['B/l'].min(), 1.1*oidata['B/l'].max(), 300)
         ax3.plot(Bl, v2_interp(Bl, fit['best']), '-r', label='SATLAS')
-        #ax3.plot(Bl, v2ud_fit(Bl, fitUD['best']), '-b', label='UD')
         if compareC4:
             ax3.plot(Bl, v2Claret4(Bl, fitC4['best']), '-g', label='Claret 4')
+        if not fitLin is None:
+            ax3.plot(Bl, v2Lin(Bl, fitLin['best']), '-m',
+                    label='linear u=%.3f'%(fitLin['best']['u']))
 
         if not fitAlpha is None:
             Bl = np.linspace(0.9*oidata['B/l'].min(),
@@ -950,28 +1164,32 @@ def fitDiamModel(oifits, model=None, figure=0, bootstrapping=False, firstGuess=3
                                                                       fitAlpha['uncer']['diam'],
                                                                       fitAlpha['chi2']
                                                                       ))
-        ax2.legend(loc='lower left', fontsize=8)
+            ax2.vlines(fitAlpha['best']['diam']*0.5, 0, 1, color='y', linestyle='dotted',
+                    alpha=0.5)
 
+        ax2.legend(loc='upper right', fontsize=8)
         ax3.legend(loc='lower left', fontsize=8)
         ax3.set_ylabel('V$^2$')
-        ax3.set_yscale('log')
+        #ax3.set_yscale('log')
         ax4 = plt.subplot(224, sharex=ax3)
-        ax4.errorbar(oidata['B/l'], (oidata['v2']-fit['model'])/oidata['ev2'],
-                    yerr=oidata['ev2'], fmt='.r', alpha=0.5)
+
+        ax4.plot(oidata['B/l'], (oidata['v2']-fit['model'])/oidata['ev2'],
+                 '.r', alpha=0.5)
         #ax4.errorbar(oidata['B/l'], (oidata['v2']-fitUD['model'])/oidata['ev2'],
         #            yerr=oidata['ev2'], fmt='.b', alpha=0.5)
         if compareC4:
-            ax4.errorbar(oidata['B/l'], (oidata['v2']-fitC4['model'])/oidata['ev2'],
-                        yerr=oidata['ev2'], fmt='.g', alpha=0.5)
+            ax4.plot(oidata['B/l'], (oidata['v2']-fitC4['model'])/oidata['ev2'],
+                     '.g', alpha=0.5)
 
         if not fitAlpha is None:
-            ax4.errorbar(oidata['B/l'], (oidata['v2']-fitAlpha['model'])/oidata['ev2'],
-                        yerr=oidata['ev2'], fmt='.y', alpha=0.5)
+            ax4.plot(oidata['B/l'], (oidata['v2']-fitAlpha['model'])/oidata['ev2'],
+                     '.y', alpha=0.5)
 
         ax4.grid()
         ax4.set_xlabel('B/$\lambda$')
         ax4.set_ylabel('residuals ($\sigma$)')
-        ax4.set_ylim(-max(-plt.ylim()[0], plt.ylim()[1]), max(-plt.ylim()[0], plt.ylim()[1]))
+        ax4.set_ylim(-max(-ax4.get_ylim()[0], ax4.get_ylim()[1]),
+                      max(-ax4.get_ylim()[0], ax4.get_ylim()[1]))
         if bootstrapping:
             plt.figure(figure+1)
             plt.clf()
@@ -994,7 +1212,7 @@ def fitDiamModel(oifits, model=None, figure=0, bootstrapping=False, firstGuess=3
                               np.percentile(f['B/l'], 100-p)], 'k-', alpha=0.1,
                               linewidth=1+2*j)
 
-    return
+    return res
 
 def _Vld(base, diam, wavel, alpha=0.36):
     """
@@ -1004,7 +1222,7 @@ def _Vld(base, diam, wavel, alpha=0.36):
     diam *= np.pi/(180*3600.*1000)
     x = -1.*(np.pi*diam*base/wavel)**2/4.
     V_ = 0
-    for k_ in range(100):
+    for k_ in range(50):
         V_ += scipy.special.gamma(nu + 1.)/\
               scipy.special.gamma(nu + 1. + k_)/\
               scipy.special.gamma(k_ + 1.) *x**k_
@@ -1024,22 +1242,54 @@ def v2Alpha(bw, param):
     else:
         return _Vld(bw, param['diam'], 1., alpha=param['alpha'])**2
 
+def v2Lin(bw, param):
+    if 'R' in param.keys():
+        res = 0.
+        d = {k:param[k] for k in param.keys() if k!='R'}
+        for z in np.linspace(-.5,.5,5):
+            res += v2Lin(bw*(1+z/param['R']),d)/5.
+        return res
+    r = np.linspace(0, 1, 100)
+    mu = np.sqrt(1-r**2)
+    I = 1 - param['u']*(1-mu)
+    x = np.pi*bw*param['diam']*np.pi/180/3600/1000.
+    V = np.trapz(special.jv(0,x[None,:]*r[:,None])*
+                 (I[:,None]*r[:,None]), r[:,None], axis=0)
+    V /= np.trapz(I*r, r)
+    return V**2
+
 def v2Claret4(bw, param):
     """
+    bw: B/wl in m/m
+
     param = {'diam':, 'a1': 'a2':, 'a3':, 'a4':}
     """
     if 'R' in param.keys():
         res = 0.
         d = {k:param[k] for k in param.keys() if k!='R'}
-        for z in np.linspace(-.4,.4,5):
+        for z in np.linspace(-.5,.5,5):
             res += v2Claret4(bw*(1+z/param['R']),d)/5.
         return res
-    res = _Vld(bw, param['diam'], 1., alpha=0)
-    res *= 1-np.sum([param['a'+str(i)] for i in [1,2,3,4]])
-    for i in [1,2,3,4]:
-        res += param['a'+str(i)]*_Vld(bw, param['diam'], 1., alpha=i/2.)
-    return res**2
 
+    if True:
+        # -- numerical:
+        r = np.linspace(0, 1, 500)
+        mu = np.sqrt(1-r**2)
+        I = 1.
+        for i in [1,2,3,4]:
+            I -= param['a'+str(i)]*(1-mu**(i/2.))
+        x = np.pi*bw*param['diam']*np.pi/180/3600/1000.
+        V = np.trapz(special.jv(0,x[None,:]*r[:,None])*
+                     (I[:,None]*r[:,None]), r[:,None], axis=0)
+        V /= np.trapz(I*r, r)
+        return V**2
+    else:
+        # -- analytical
+        res = _Vld(bw, param['diam'], 1., alpha=0)
+        res *= 1-np.sum([param['a'+str(i)] for i in [1,2,3,4]])
+        for i in [1,2,3,4]:
+            res += param['a'+str(i)]*_Vld(bw, param['diam'], 1., alpha=i/2.)
+        return res**2
 
 def V2ld_B74(baseline, params):
     """

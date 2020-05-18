@@ -1,4 +1,6 @@
 """
+TODO: check ftp://ftp.ll.iac.es/collection
+
 reads an interpolate files obtained here:
 
 http://wwwuser.oats.inaf.it/castelli/grids.html
@@ -27,11 +29,13 @@ for d in sys.path:
         _data_dir = os.path.join(d, 'DATA')
         print '\033[43m', _data_dir, '\033[0m'
 
+
+print 'ATLAS9: _dir_data=', _dir_data,
 if not os.path.exists(_dir_data):
     os.makedirs(_dir_data)
-
-print 'ATLAS9: _dir_data=', _dir_data
-
+    print('-> creating')
+else:
+    print('already exists')
 
 import numpy as np
 import photfilt2
@@ -759,18 +763,19 @@ except:
     # -- reading ATLAS9 models
     try:
         # -- read binary file
-        print 'ATLAS9 reading file', gridfile
-
-        if not useBOSZ:
-            f = open(os.path.join(bosz.dirData,gridfile))
+        print 'ATLAS9 reading file', gridfile,
+        #print '   opening...', os.path.join(_dir_data, 'ATLAS9', gridfile)
+        if useBOSZ:
+            f = open(os.path.join(bosz.dirData, gridfile), 'rb')
         else:
-            f = open(os.path.join(_dir_data+'/ATLAS9/',gridfile))
-
+            f = open(os.path.join(_dir_data, 'ATLAS9', gridfile), 'rb')
+        #print('   loading...')
         models = cPickle.load(f)
         f.close()
-        print '   -> DONE'
+        #print('   closing...')
+        print '-> DONE'
     except:
-        print '   -> FAILED'
+        print '-> FAILED'
         # -- generate binary file
         # -- read LD files
         #readLD() # not needed anymore

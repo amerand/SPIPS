@@ -441,16 +441,17 @@ def fit(allobs, first_guess, doNotFit=None, guessDoNotFit=False, fitOnly=None, f
             f.append(hdum)
             f.flush()
             f.close()
-            directory = fit['export']['FITS'].split('.fits')[0].upper()
+            directory = fit['export']['DIRECTORY']
             print 'EXPORT DIRECTORY:', directory
-            fit2html(fit, fit['export']['FITS'].split('.fits')[0].lower(),
-                    directory)
-            os.rename(fit['export']['FITS'],
-                        os.path.join(directory, os.path.basename(fit['export']['FITS'])))
-            fit['export']['FITS'] = os.path.join(directory, os.path.basename(fit['export']['FITS']))
-            if 'FIG' in fit['export']:
-                for f in fit['export']['FIG']:
-                    os.rename(f, os.path.join(directory, os.path.basename(f)))
+            if not os.path.isdir(directory):
+                os.mkdir(directory)
+            fit2html(fit, fit['export']['BASENAME'], directory)
+            #os.rename(fit['export']['FITS'],
+            #            os.path.join(directory, os.path.basename(fit['export']['FITS'])))
+            #fit['export']['FITS'] = os.path.join(directory, os.path.basename(fit['export']['FITS']))
+            # if 'FIG' in fit['export']:
+            #     for f in fit['export']['FIG']:
+            #         os.rename(f, os.path.join(directory, os.path.basename(f)))
         return fit
 
 def fit2html(f, root='spips', directory='./', makePlots=True):
@@ -1661,7 +1662,22 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         # This is used by modelM to compute in parallel, calling the function
         # 'model' with plot=False.
         for k, obs in enumerate(x):
-            if obs[1].split(';')[0]=='vpuls': # includes Vgamma
+            if obs[1].split(';')[0]=='negative E(B-V)':
+                # -- to penalize negative E(B-V)
+                if 'E(B-V)' in a:
+                    if a['E(B-V)']>0:
+                        res.append(0.0)
+                    else:
+                        res.append(np.abs(a['E(B-V)']/0.01)**2)
+                else:
+                    res.append(0.0)
+            elif obs[1].split(';')[0]=='negative excess':
+                # -- to penalize negative excess
+                if k_excess>0:
+                    res.append(0.0)
+                else:
+                    res.append(np.abs(k_excess/0.01)**2)
+            elif obs[1].split(';')[0]=='vpuls': # includes Vgamma
                 res.append(iVpuls(phi[k]))
             elif obs[1].split(';')[0]=='vrad':
                 res.append(iVrad(phi[k]-vrad_phase_offset) + Vgamma)
@@ -1682,7 +1698,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
                     #res[-1] *= diamBiasK(res[-1], obs[2][1], 10**(h_excess/2.5)-1,
                     #                     RshellRstar)
                     pass
-
             elif obs[1].split(';')[0]=='UDdiam':
                 try:
                     if _ldCoef=='PHOEBE':
@@ -3391,7 +3406,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         hdu.header['COMMENT'] = 'https://github.com/amerand/SPIPS'
         if not starName is None:
             hdu.header['STARNAME'] = starName
-
         for k in np.sort(a.keys()):
             hdu.header['HIERARCH PARAM '+k] = a[k]
         for k in np.sort(fits_model.keys()):
@@ -3444,7 +3458,6 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         cols.append(pyfits.Column(name='PERIOD', format='E11.8',
                                       array=Period))
 
-
         #hducols = pyfits.ColDefs(cols)
         #hdud = pyfits.new_table(hducols)
         hdud = pyfits.BinTableHDU.from_columns(cols)
@@ -3459,21 +3472,25 @@ def model(x, a, plot=False, starName=None, verbose=False, uncer=None, showOutlie
         thdulist = pyfits.HDUList([hdu, hdud, hdum])
 
         if not os.path.isdir(_dir_export):
-            os.path.mkdir(_dir_export)
-        export = {'FITS':os.path.join(_dir_export, filename+'.fits')}
-
-        thdulist.writeto(export['FITS'])
+            os.mkdir(_dir_export)
+        export = {'BASENAME':filename.lower(),
+                  'FITS':os.path.join(_dir_export, filename.upper(), filename.lower()+'.fits'),
+                  'DIRECTORY':os.path.join(_dir_export, filename.upper()),
+                  }
+        if not os.path.isdir(export['DIRECTORY']):
+            os.mkdir(export['DIRECTORY'])
+        thdulist.writeto(export['FITS'], overwrite=True)
         if len(figures)>0:
             export['FIG'] = []
-
             for k, f in enumerate(figures):
-                export['FIG'].append(os.path.join(_dir_export, filename+'_Fig'+str(k)+'.pdf'))
+                export['FIG'].append(os.path.join(_dir_export, filename.upper(),
+                                     filename.lower()+'_Fig'+str(k)+'.pdf'))
                 f.savefig(export['FIG'][-1])
         print 'Done exporting'
         return export
     return res
 
-def importFits(fitsname, runSPIPS=False):
+def importFits(fitsname, runSPIPS=False, doNotFit=False):
     """
     read fits and extract parameters dictionnary and data vector
     """
@@ -3485,8 +3502,15 @@ def importFits(fitsname, runSPIPS=False):
 
     # -- build dict of parameters:
     a = {}
+    fitOnly, doNotFit = [], []
+
     for k in filter(lambda x: x.startswith('PARAM '), f[0].header):
         a[k.split('PARAM ')[1]] = f[0].header[k]
+    for k in filter(lambda x: x.startswith('UNCER '), f[0].header):
+        if f[0].header[k]>0:
+            fitOnly.append(k.split('UNCER ')[1])
+        else:
+            doNotFit.append(k.split('UNCER ')[1])
 
     # -- build data list:
     obs = []
@@ -3516,7 +3540,10 @@ def importFits(fitsname, runSPIPS=False):
     if runSPIPS:
         model(obs, a, plot=True, starName=starName, verbose=True)
     else:
-        return a, obs
+        if doNotFit:
+            return a, obs, doNotFit
+        else:
+            return a, obs
 
 def check36_45colorModulation(fitsname, plot=True):
     f = pyfits.open(fitsname, mode='update')
@@ -3622,7 +3649,6 @@ def qualityPhaseCoverage(Nvrad=0, Nvis=0, Nir=0, Ninterf=0, Nteff=0):
     else:
         res += qual1(Nvis)
     return res
-
 
 def pseudoStat(x):
     # -- pseudo variance
@@ -3954,14 +3980,19 @@ def _makeAll_photometryGrid():
     return res
 
 def photometrySED(diam, teff, filtname, metal=0.0, plot=False, Nwl=100,
-                  logg=1.0, SED=False, useGrid=True, jy=False):
+                  logg=1.0, SED=False, useGrid=True, jy=False, z=0.0):
     """
     compute photometry for diam (mas), teff (K) and filter name. If
     SED==True, returns the wavelength table and SED (in W/m2/um),
     instead of the integrated value.
+
+    z is redshift
     """
     global __SEDmodel # tell which grid of model to use
     global __MAGgrid, _dir_data
+
+    if z>0:
+        useGrid = False
 
     if isinstance(diam, list):
         if not isinstance(logg, list):
@@ -3971,6 +4002,7 @@ def photometrySED(diam, teff, filtname, metal=0.0, plot=False, Nwl=100,
             res += 10.**(-photometrySED(diam[k], teff[k],
                                           filtname, metal=metal,
                                           Nwl=Nwl, logg=logg[k],
+                                          useGrid=useGrid, z=z,
                                           SED=False)/2.5)
         return -2.5*np.log10(res)
 
@@ -4011,11 +4043,17 @@ def photometrySED(diam, teff, filtname, metal=0.0, plot=False, Nwl=100,
     # -- stellar spectrum
     if __SEDmodel=='atlas9' or __SEDmodel=='BOSZ':
         import atlas9
-        F = atlas9.flambda(wl, teff, logg, metal=metal)
+        F = atlas9.flambda(wl/(1+z), teff, logg, metal=metal)
 
     elif __SEDmodel=='phoenix2':
-        F = phoenix2.flambda(wl*n_air_P_T(wl), teff, logg)
+        F = phoenix2.flambda(wl*n_air_P_T(wl)/(1+z), teff, logg)
 
+    #F = np.ones(len(wl))
+
+    # https://ned.ipac.caltech.edu/level5/Sept02/Hogg/frames.html, eq6
+    # -- multiply by (1+z) because fluxes are per unit of wavelength
+    # -- but I am changing WL in the rest frame, not in the redshifted one, so /=
+    F /= (1+z)
 
     # -- integrated
     iF = np.trapz(F*T, wl)/np.trapz(T, wl)
@@ -4039,9 +4077,158 @@ def photometrySED(diam, teff, filtname, metal=0.0, plot=False, Nwl=100,
         if jy:
             return photfilt2.convert_Wm2um_to_Jy(iF,
                             photfilt2.effWavelength_um(filtname))
-
         else:
             return photfilt2.convert_Wm2um_to_mag(iF, filtname)
+
+def Kcorr(teff, filtname, logg=1.0, metal=0.0, z=0.0):
+    """
+    http://articles.adsabs.harvard.edu/pdf/1968ApJ...154...21O eq 2
+    http://adsabs.harvard.edu/full/1996PASP..108..190K in section 2
+    m_obs = m_z=0 + Kcorr
+
+    https://en.wikipedia.org/wiki/K_correction
+    m_0 = m_obs - K so K = m_obs - m_0
+
+    Richard and I defined "K = m0 - mobs" -> "m_obs = m_true - K"
+    """
+    Nwl = 500
+    if type(filtname)==str:
+        # -- wavelength range of the filter
+        wl = np.linspace(photfilt2.wavelRange(filtname)[0],
+                         photfilt2.wavelRange(filtname)[1],
+                         Nwl)
+        # -- filter
+        T = photfilt2.Transmission(filtname)(wl) # includes earth atmo if needed
+
+        # -- photon counting!
+        if photfilt2.effWavelength_um(filtname)<3. and not 'GAIA' in filtname:
+            # -- already done for GAIA
+            T *= wl
+    else:
+        wl, T = filtname
+
+    import atlas9
+    F0 = atlas9.flambda(wl, teff, logg, metal=metal)
+    Fz = atlas9.flambda(wl/(1+z), teff, logg, metal=metal)
+    # -- flat spectra
+    #F0 = np.ones(len(wl)); Fz = np.ones(len(wl))
+
+    return 2.5*np.log10(1+z) + 2.5*np.log10(np.trapz(F0*T, wl)/np.trapz(Fz*T, wl))
+
+def multiK(z=0.05):
+    filters = ['V_Johnson', #'R_Cousins',
+                'I_Cousins',
+                'F160W_HST_WFC3_IR',
+                #'J_2MASS', 'H_2MASS', #'Ks_2MASS'
+                ]
+    # filters = ['F070W_JWST_NIRCam', 'F090W_JWST_NIRCam', 'F115W_JWST_NIRCam',
+    #            'F150W_JWST_NIRCam',
+    #            ]
+
+    Nwl = 1000
+    teff = 5000.0
+    logg = 1.0
+    metal = 0.0
+
+    wl = np.linspace(min([photfilt2.wavelRange(f)[0] for f in filters]),
+                     max([photfilt2.wavelRange(f)[1] for f in filters]),
+                     Nwl)
+    import atlas9
+    F0 = atlas9.flambda(wl, teff, logg, metal=metal)
+    Fz = atlas9.flambda(wl/(1+z), teff, logg, metal=metal)
+
+    plt.figure(0)
+    plt.clf()
+    plt.plot(wl, F0, '-k', linewidth=2,
+            label=r'$F(\lambda)$, T$_\mathrm{eff}$=%.0fK'%teff)
+    plt.plot(wl, Fz/(1+z), '-r', linewidth=2,
+    label=r'$\frac{1}{1+z}F\left(\frac{\lambda}{1+z}\right)$, z=%.2f'%z)
+    for f in filters:
+        wl = np.linspace(photfilt2.wavelRange(f)[0],
+                         photfilt2.wavelRange(f)[1],
+                         200)
+        T = photfilt2.Transmission(f)(wl)
+        T /= max(T)
+        plt.plot(wl, T*0.9*max(F0), '-k', alpha=0.5)
+        plt.text(np.sum(wl*T)/np.sum(T), 1.2*min(F0), f.split('_')[0],
+                    alpha=0.5, fontsize=20)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.ylim(0.95*min(F0))
+    plt.legend()
+    plt.xlabel('rest wavelength ($\mu$m)')
+    return
+
+
+def redshiftEffect():
+    """
+    """
+    Z = np.linspace(0, 0.04, 7)
+    filt = 'V_Johnson'
+    #filt = 'H_2MASS'
+    plt.figure(0, figsize=(29.7/3, 21/3))
+    plt.clf()
+    axW = plt.subplot(2,5,1)
+    axWm = plt.subplot(2,5,6)
+
+    axV = plt.subplot(2,5,2, sharex=axW, sharey=axW)
+    axVm = plt.subplot(2,5,7, sharex=axWm, sharey=axWm)
+
+    axI = plt.subplot(2,5,3, sharex=axW, sharey=axW)
+    axIm = plt.subplot(2,5,8, sharex=axWm, sharey=axWm)
+
+    axH = plt.subplot(2,5,4, sharex=axW, sharey=axW)
+    axHm = plt.subplot(2,5,9, sharex=axWm, sharey=axWm)
+
+    axI4 = plt.subplot(2,5,5, sharex=axW, sharey=axW)
+    axI4m = plt.subplot(2,5,10, sharex=axWm, sharey=axWm)
+
+    logP = 1
+    logL = 1
+
+    for Teff in [5500, 5000, 4500]:
+        bands = ['V_Johnson', 'I_Cousins', 'F160W_HST_WFC3_IR', 'Ks_2MASS']
+
+        Kv = np.array([Kcorr(Teff, 'V_Johnson', z=z) for z in Z])
+        Ki = np.array([Kcorr(Teff, 'I_Cousins', z=z) for z in Z])
+        Kh = np.array([Kcorr(Teff, 'F160W_HST_WFC3_IR', z=z) for z in Z])
+        Kk = np.array([Kcorr(Teff, 'Ks_2MASS', z=z) for z in Z])
+
+        Kw = Kh - 0.4*(Kv-Ki)
+
+        # -- slope from Richard
+        axW.plot(Z, Kw, '-', label='Teff=%.0fK'%Teff)
+        axWm.plot(Z, Kw + 3.26*np.log10(1+Z), '-')
+
+        # -- slopes from Fouque+ 2007
+        axV.plot(Z, Kv, '-', label='Teff=%.0fK'%Teff)
+        axVm.plot(Z, Kv + 2.678*np.log10(1+Z), '-')
+
+        axI.plot(Z, Ki, '-', label='Teff=%.0fK'%Teff)
+        axIm.plot(Z, Ki + 2.980*np.log10(1+Z), '-')
+
+        axH.plot(Z, Kh, '-', label='Teff=%.0fK'%Teff)
+        axHm.plot(Z, Kh + 3.328*np.log10(1+Z), '-')
+
+        # -- slopes from Marengo+ 2009
+        # https://arxiv.org/pdf/0911.2470.pdf table 6
+        axI4.plot(Z, Kk, '-', label='Teff=%.0fK'%Teff)
+        axI4m.plot(Z, Kk + 3.365*np.log10(1+Z), '-')
+
+    axW.set_title('F160W - 0.4(V-I)')
+    axH.set_title('F160W')
+    axV.set_title('V')
+    axI.set_title('I')
+    #axI4.set_title('Spitzer 8$\mu$m')
+    axI4.set_title('K')
+
+    axW.set_ylabel('K$_\mathrm{corr}$')
+    axW.legend()
+    axWm.set_ylabel(r'$\Delta\mu$ = biased - true')# = K - b log(1+z)')
+    axWm.set_xlabel('z (redshift)')
+
+    plt.tight_layout()
+    return
 
 def fitPhotDiam(data, firstguess=None, fitOnly=['diam', 'Teff']):
     """
